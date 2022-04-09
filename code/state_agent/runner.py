@@ -3,8 +3,6 @@ import logging
 import numpy as np
 from collections import namedtuple
 from functools import reduce
-import traceback
-import json
 
 TRACK_NAME = 'icy_soccer_field'
 MAX_FRAMES = 1000
@@ -166,7 +164,7 @@ class Match:
 
     @staticmethod
     def _g(f):
-        from grader.remote import ray
+        from .remote import ray
         if ray is not None and isinstance(f, (ray.types.ObjectRef, ray._raylet.ObjectRef)):
             return ray.get(f)
         return f
@@ -203,9 +201,10 @@ class Match:
 
         # Start a new match
         team_cars = [self._g(self._r(team.new_match)(idx, num_player)) or ['tux'] * num_player for idx, team in enumerate(teams)]
-                    
-        if reduce(lambda team, prev: team.info()[0] == "image" or prev, teams):
-            assert self._use_graphics, 'Need to use_graphics for image agents.'
+
+        for team in teams:
+            if self._g(self._r(team.info)())[0] == "image":
+                assert self._use_graphics, 'Need to use_graphics for image agents.'
 
         # Deal with crashes
         can_act = self._check(teams, 'new_match', 0, timeout)
@@ -253,7 +252,7 @@ class Match:
                                 for i in range(idx, len(race.render_data), 2)
                         ] 
                         for idx in range(len(teams))
-                    ]                
+                    ]   
 
                 # Have each team produce actions (in parallel)
                 team_actions_delayed = []
@@ -261,7 +260,7 @@ class Match:
                     if team_can_act:
                         if team.info()[0] == 'image':
                             team_actions_delayed.append(self._r(team.act)(team_state, team_img))
-                        else:                                               
+                        else:
                             team_actions_delayed.append(self._r(team.act)(team_state, team_states[0] if idx == 1 else (team_states[1] if len(team_states) > 1 else None), soccer_state))
 
                 # Wait for the actions to finish
@@ -304,11 +303,8 @@ if __name__ == '__main__':
     from argparse import ArgumentParser
     from pathlib import Path
     from os import environ
-    from grader import remote
+    from . import remote
     import state_agent.utils as utils
-
-    match = None
-
     try:
         parser = ArgumentParser(description="Play some Ice Hockey. List any number of players, odd players are in team 1, even players team 2.")
         parser.add_argument('-r', '--record_video', help="Do you want to record a video?")
@@ -317,6 +313,7 @@ if __name__ == '__main__':
         parser.add_argument('-p', '--num_players', default=2, type=int, help="Number of players per team")
         parser.add_argument('-m', '--max_score', default=3, type=int, help="How many goal should we play to?")
         parser.add_argument('-j', '--parallel', type=int, help="How many parallel process to use?")
+        parser.add_argument('--matches', default=1, type=int, help="Number of matches to run")
         parser.add_argument('--ball_location', default=[0, 0], type=float, nargs=2, help="Initial xy location of ball")
         parser.add_argument('--ball_velocity', default=[0, 0], type=float, nargs=2, help="Initial xy velocity of ball")
         parser.add_argument('team1', help="Python module name or `AI` for AI players.")
@@ -332,24 +329,34 @@ if __name__ == '__main__':
                 teams.append(AIRunner() if args.team1 == 'AI' else TeamRunner(args.team1))
             if args.team2:
                 teams.append(AIRunner() if args.team2 == 'AI' else TeamRunner(args.team2))
-
-            # What should we record?
-            recorder = None
-            if args.record_video:
-                recorder = recorder & utils.VideoRecorder(args.record_video)
-
-            if args.record_state:
-                recorder = recorder & utils.StateRecorder(args.record_state)
-
+            
+            use_graphics = reduce(lambda prev, team: team.agent_type == 'image' or prev, teams, False)
+            match = Match(use_graphics=use_graphics)
+            
             # Start the match
-            match = Match(use_graphics=reduce(lambda team, prev: team.agent_type == "image" or prev, teams))
-            try:
-                result = match.run(teams, args.num_players, args.num_frames, max_score=args.max_score,
-                                initial_ball_location=args.ball_location, initial_ball_velocity=args.ball_velocity,
-                                record_fn=recorder)
-                print('Match results', result)
-            except MatchException as e:
-                raise e.exp
+            for m in range(args.matches):
+                
+                # What should we record?
+                recorder = None
+                if args.record_video:
+                    record_video_suffix = Path(args.record_video).suffix
+                    record_video_name = args.record_video.replace(record_video_suffix, "")                    
+                    recorder = recorder & utils.VideoRecorder("{}_{:05d}{}".format(record_video_name, m, record_video_suffix))
+
+                if args.record_state:
+                    record_state_suffix = Path(args.record_state).suffix                    
+                    record_state_name = args.record_state.replace(record_state_suffix, "")                    
+                    recorder = recorder & utils.StateRecorder("{}_{:05d}{}".format(record_state_name, m, record_state_suffix))
+                
+                try:
+                    result = match.run(teams, args.num_players, args.num_frames, max_score=args.max_score,
+                                    initial_ball_location=args.ball_location, initial_ball_velocity=args.ball_velocity,
+                                    record_fn=recorder)
+                    print('Match results', result)
+                except MatchException as e:
+                    raise e.exp
+
+            del match
 
         else:
             # Fire up ray
@@ -369,22 +376,26 @@ if __name__ == '__main__':
                 team_infos.append(team2.info() if args.team2 == 'AI' else remote.get(team2.info.remote()))
 
             # What should we record?
-            assert args.record_state is None or args.record_video is None, "Cannot record both video and state in parallel mode"
+            # assert args.record_state is None or args.record_video is None, "Cannot record both video and state in parallel mode"
+
+            # Start the jobs
+            matches = [
+                remote.RayMatch.remote(logging_level=getattr(logging, environ.get('LOGLEVEL', 'WARNING').upper()),
+                                        use_graphics=reduce(lambda prev, team: team[0] == "image" or prev, team_infos, False))
+                for i in range(args.parallel)
+            ]
 
             # Start the match
             results = []
-            for i in range(args.parallel):
+            for i in range(args.matches):
                 recorder = None
                 if args.record_video:
                     ext = Path(args.record_video).suffix
-                    recorder = remote.RayVideoRecorder.remote(args.record_video.replace(ext, f'.{i}{ext}'))
+                    recorder = remote.RayVideoRecorder.remote(args.record_video.replace(ext, '_{:05d}{}'.format(i, ext)))
                 elif args.record_state:
                     ext = Path(args.record_state).suffix
-                    recorder = remote.RayStateRecorder.remote(args.record_state.replace(ext, f'.{i}{ext}'))
-
-                match = remote.RayMatch.remote(logging_level=getattr(logging, environ.get('LOGLEVEL', 'WARNING').upper()),
-                                            use_graphics=reduce(lambda a, prev: a[0] == "image" or prev, team_infos))
-                result = match.run.remote(teams, args.num_players, args.num_frames, max_score=args.max_score,
+                    recorder = remote.RayStateRecorder.remote(args.record_state.replace(ext, '_{:05d}{}'.format(i, ext)))
+                result = matches[i % args.parallel].run.remote(teams, args.num_players, args.num_frames, max_score=args.max_score,
                                         initial_ball_location=args.ball_location,
                                         initial_ball_velocity=args.ball_velocity,
                                         record_fn=recorder)
@@ -403,4 +414,3 @@ if __name__ == '__main__':
     except Exception as e:
         traceback.print_exc()
 
-    del match
