@@ -25,7 +25,7 @@ def loop():
     parser.add_argument('--trainer', type=str, help="Training model to run")    
     args = parser.parse_known_args()[0]
 
-    trainer_module = load_module_file('state_agent.trainers.train', 'state_agent/trainers/train.py')
+    trainer_module = load_module_file('state_agent.trainers.train', 'state_agent/trainers/{}.py'.format(args.trainer))
     
     for epoch in range(args.loops):
 
