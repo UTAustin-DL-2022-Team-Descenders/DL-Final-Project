@@ -298,13 +298,13 @@ class Match:
     def wait(self, x):
         return x
 
-
-if __name__ == '__main__':
+def main():
     from argparse import ArgumentParser
     from pathlib import Path
     from os import environ
-    from . import remote
+    from state_agent import remote
     import state_agent.utils as utils
+    
     try:
         parser = ArgumentParser(description="Play some Ice Hockey. List any number of players, odd players are in team 1, even players team 2.")
         parser.add_argument('-r', '--record_video', help="Do you want to record a video?")
@@ -414,3 +414,6 @@ if __name__ == '__main__':
     except Exception as e:
         traceback.print_exc()
 
+
+if __name__ == '__main__':    
+    main()

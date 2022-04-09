@@ -1,9 +1,9 @@
-from .action_network import ActionNetwork, save_model 
-from .state_agent import get_features
+from .. import ActionNetwork, save_model 
+from ..state_agent import get_features
 import torch
 import torch.utils.tensorboard as tb
 import numpy as np
-from .utils import accuracy, get_pickle_files, load_recording, DATASET_PATH
+from ..utils import accuracy, get_pickle_files, load_recording
 
 # TODO: Fix me!
 LOGDIR_PATH = ""
@@ -50,7 +50,7 @@ def train(args):
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.1)
 
     # Load Data
-    training_pkl_file_list = get_pickle_files(DATASET_PATH)
+    training_pkl_file_list = get_pickle_files(args.dataset)
 
     global_step = 0
 
@@ -61,6 +61,7 @@ def train(args):
 
         # For collecting training accuracies
         train_accuracy_list = []
+        loss = None
 
         # Iterate over each game
         # TODO: maybe there's a better way to randomize training across games?
@@ -135,16 +136,22 @@ def convert_action_dictionary_to_tensor(action_dictionary):
                             action_dictionary.get("nitro", 0)),
                         dtype=torch.float32)
 
-
-if __name__ == '__main__':
+def main():
     import argparse
 
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--logdir', default=LOGDIR_PATH)
+    parser.add_argument('-dp', '--dataset', type=str, help="Path to dataset")
     parser.add_argument('-lr', '--learning_rate', type=float, default=0.01, help="Learning rate of the model")
     parser.add_argument('-ep', '--epochs', type=int, default=10, help="Number of epochs to train model over")
 
-    args = parser.parse_args()
+    args = parser.parse_known_args()[0]
+
+    if args.dataset is None:
+        exit("Error: --dataset parameter must be provided")
 
     train(args)
+
+if __name__ == '__main__':
+    main()
