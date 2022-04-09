@@ -5,19 +5,11 @@
 #
 
 from state_agent.runner import main as runner
-
-def load_module_file(package, file_path):
-    import importlib
-
-    spec = importlib.util.spec_from_file_location(package, file_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+from state_agent.utils import load_module_file
 
 def loop():
 
     from argparse import ArgumentParser
-    
 
     parser = ArgumentParser(description="Collect data via runner, run a trainer, then repeat")
     parser.add_argument('agent', help="Actor team to load")

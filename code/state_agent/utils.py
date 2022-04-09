@@ -16,6 +16,13 @@ DATASET_PATH = '../../data'
 
 DEBUG_EN = False
 
+def load_module_file(package, file_path):
+    import importlib
+
+    spec = importlib.util.spec_from_file_location(package, file_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 class Team(IntEnum):
     RED = 0
