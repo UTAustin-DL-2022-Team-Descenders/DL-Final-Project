@@ -97,6 +97,7 @@ class BaseRecorder:
 
 
 class MultiRecorder(BaseRecorder):
+
     def __init__(self, *recorders):
         self._r = [r for r in recorders if r]
 
@@ -104,7 +105,12 @@ class MultiRecorder(BaseRecorder):
         for r in self._r:
             r(*args, **kwargs)
 
-
+    @property
+    def states(self) -> list:        
+        for r in self._r:
+            if hasattr(r, "states"):
+                return r.states
+        return []
 class VideoRecorder(BaseRecorder):
     """
         Produces pretty output videos
@@ -145,17 +151,22 @@ class DataRecorder(BaseRecorder):
 
 
 class StateRecorder(BaseRecorder):
-    def __init__(self, state_action_file, record_images=False):
+    def __init__(self, state_action_file=None, record_images=False):
         self._record_images = record_images
-        self._f = open(state_action_file, 'wb')
+        if state_action_file:
+            self._f = open(state_action_file, 'wb')
+        self.states = []
 
     def __call__(self, team_state, soccer_state, actions, team_images=None):
         from pickle import dump
         data = dict(team_state=team_state, soccer_state=soccer_state, actions=actions)
         if self._record_images:
-            data['team_images'] = team_images            
-        dump(dict(data), self._f)
-        self._f.flush()
+            data['team_images'] = team_images         
+        if hasattr(self, '_f'):            
+            dump(dict(data), self._f)
+            self._f.flush()
+        else:
+            self.states.append(data)
 
     def __del__(self):
         if hasattr(self, '_f'):
