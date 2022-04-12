@@ -78,7 +78,7 @@ class TeamRunner:
         self._error = None
         self._team = None
         try:                 
-            if isinstance(team_or_dir, (str, Path)):                                                
+            if isinstance(team_or_dir, (str, Path)):     
                 assignment = load_assignment(team_or_dir)
                 if assignment is None:
                     self._error = 'Failed to load submission.'
@@ -207,11 +207,11 @@ class Match:
         num_teams = len(teams)
         logging.info('Creating teams: number of teams {}, number of players on a team {}'.format(num_teams, num_player))
 
-        # set the training mode
-        [self._g(self._r(team.set_training_mode)(training_mode)) for team in teams]
-
         # Start a new match
         team_cars = [self._g(self._r(team.new_match)(idx, num_player)) or ['tux'] * num_player for idx, team in enumerate(teams)]
+
+        # set the training mode
+        [self._g(self._r(team.set_training_mode)(training_mode)) for team in teams]
 
         for team in teams:
             if self._g(self._r(team.info)())[0] == "image":
@@ -269,7 +269,7 @@ class Match:
                 team_actions_delayed = []
                 for idx, (team, team_can_act, team_state, team_img) in enumerate(zip(teams, can_act, team_states, team_images)):            
                     if team_can_act:
-                        if team.info()[0] == 'image':
+                        if self._g(self._r(team.info)())[0] == "image":
                             team_actions_delayed.append(self._r(team.act)(team_state, team_img))
                         else:
                             team_actions_delayed.append(self._r(team.act)(team_state, team_states[0] if idx == 1 else (team_states[1] if len(team_states) > 1 else None), soccer_state))
@@ -338,7 +338,7 @@ def runner(args):
                 if args.record_video:
                     record_video_suffix = Path(args.record_video).suffix
                     record_video_name = args.record_video.replace(record_video_suffix, "")                    
-                    recorder = recorder & utils.VideoRecorder("{}_{:05d}{}".format(record_video_name, m, record_video_suffix))
+                    recorder = utils.VideoRecorder("{}_{:05d}{}".format(record_video_name, m, record_video_suffix))
 
                 # always record the state (this is in the state_agent module so it is a valid assumption)
                 record_state_file = None
@@ -369,11 +369,11 @@ def runner(args):
 
             # Create the teams            
             team_infos = []
-            if args.team1:
+            if args.team1:                
                 team1 = AIRunner() if args.team1 == 'AI' else remote.RayTeamRunner.remote(args.team1)
                 teams.append(team1)
                 team_infos.append(team1.info() if args.team1 == 'AI' else remote.get(team1.info.remote()))
-            if args.team1:
+            if args.team2:
                 team2 = AIRunner() if args.team2 == 'AI' else remote.RayTeamRunner.remote(args.team2)
                 teams.append(team2)            
                 team_infos.append(team2.info() if args.team2 == 'AI' else remote.get(team2.info.remote()))
@@ -392,12 +392,18 @@ def runner(args):
             results = []
             for i in range(args.matches):
                 recorder = None
-                if args.record_video:
-                    ext = Path(args.record_video).suffix
-                    recorder = remote.RayVideoRecorder.remote(args.record_video.replace(ext, '_{:05d}{}'.format(i, ext)))
-                elif args.record_state:
+                # XXX difficult to make both work?
+                #if args.record_video:
+                #    ext = Path(args.record_video).suffix
+                #    recorder = remote.RayVideoRecorder.remote(args.record_video.replace(ext, '_{:05d}{}'.format(i, ext)))
+                #elif args.record_state:
+                record_state_file = None
+                if args.record_state:
                     ext = Path(args.record_state).suffix
-                    recorder = remote.RayStateRecorder.remote(args.record_state.replace(ext, '_{:05d}{}'.format(i, ext)))
+                    record_state_file = args.record_state.replace(ext, '_{:05d}{}'.format(i, ext))
+                    
+                recorder = remote.RayStateRecorder.remote(record_state_file)
+
                 result = matches[i % args.parallel].run.remote(teams, args.num_players, args.num_frames, max_score=args.max_score,
                                         initial_ball_location=args.ball_location,
                                         initial_ball_velocity=args.ball_velocity,
