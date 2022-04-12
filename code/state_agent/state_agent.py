@@ -1,119 +1,117 @@
 from os import path 
 import numpy as np
 import torch
+import collections
+from .action_network import ActionNetwork, ActionNetworkTrainer, save_model, load_model
+import random
+import torch.nn.functional as F
 
 # Globals
 DEBUG_EN = False
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+MAX_SCORE = 3
 
-def get_features(player_state, team_state, opponent_states, puck_state, team_id):
+# Hyperparameters
+OBJS_TOUCHING_DISTANCE_THRESHOLD = 4 # Pixel distance threshold to denote objects are touching
+ACTION_TENSOR_EPSILON_THRESHOLD = 7 # used in get_random_action for decaying exploration vs exploitation
 
-    # Collect features inside a dictionary
-    features_dict = {}
+# StateAgent Default values
+DISCOUNT_RATE_GAMMA = 0.9 # between 0 to 1
+INPUT_CHANNELS = 31 # Network input channels created by get_features
+OUTPUT_CHANNELS = 6 # Network outputs used for actions
 
-    # Get player features
-    features_dict["player_kart_front"] = get_kart_front(player_state)
-    features_dict["player_kart_center"] = get_kart_center(player_state)
-    features_dict["player_kart_angle"] = get_obj1_to_obj2_angle(features_dict["player_kart_front"], features_dict["player_kart_center"])
+class StateAgent:
 
-    # Get puck features
-    features_dict["puck_center"] = get_puck_center(puck_state)
-    features_dict["kart_to_puck_angle"]  = get_obj1_to_obj2_angle(features_dict["player_kart_center"], features_dict["puck_center"]) 
+  MAX_MEMORY = 100000 # Number of timesteps to memorize
+  BATCH_SIZE = 16 # Batch size for long term training
 
-    # Get goal line features
-    # - Opponent goal line
-    features_dict["opponent_goal_line_center"] = get_team_goal_line(puck_state, get_opponent_team_id(team_id))
-    features_dict["puck_to_opponent_goal_line_angle"] = get_obj1_to_obj2_angle(features_dict["puck_center"], features_dict["opponent_goal_line_center"])
-    features_dict["kart_to_opponent_goal_line_difference"] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_angle"], features_dict["puck_to_opponent_goal_line_angle"])
+  def __init__(self, input_channels=INPUT_CHANNELS, output_channels=OUTPUT_CHANNELS, 
+                gamma=DISCOUNT_RATE_GAMMA, load_existing_model=False, optimizer="ADAM", lr=0.001):
+    self.n_games = 0 # number of games played
 
-    # - Team goal line
-    features_dict["team_goal_line_center"] = get_team_goal_line(puck_state, team_id)
-    features_dict["puck_to_team_goal_line_angle"] = get_obj1_to_obj2_angle(features_dict["puck_center"], features_dict["team_goal_line_center"])
-    features_dict["kart_to_team_goal_line_difference"] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_angle"], features_dict["puck_to_team_goal_line_angle"])
+    # Collect entries for trained timesteps
+    self.memory = collections.deque(maxlen=StateAgent.MAX_MEMORY)
 
-    # Get opponent features
-    for opponent_id, opponent_state in enumerate(opponent_states):
-      opponent_name = "opponent_%0d" % opponent_id
-      features_dict["%s_center" % opponent_name] = opponent_center = get_kart_center(opponent_state)
-      features_dict["player_to_%s_angle" % opponent_name] = player_to_opponent_angle = get_obj1_to_obj2_angle(features_dict["player_kart_center"], opponent_center)
-      features_dict["player_to_%s_angle" % opponent_name] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_center"], player_to_opponent_angle)
+    # Try loading an existing model to continue training it
+    if load_existing_model:
+      self.model = load_model()
+    else:
+      # Initialize an ActionNetwork
+      self.model = ActionNetwork(input_channels=input_channels, 
+                              output_channels=output_channels)
 
-    # Get teammate features
-    for teammate_id, teammate_state in enumerate(team_state):
-      teammate_name = "teammate_%0d" % teammate_id
-      features_dict["%s_center" % teammate_name] = teammate_center = get_kart_center(teammate_state)
-      features_dict["player_to_%s_angle" % teammate_name] = player_to_teammate_angle = get_obj1_to_obj2_angle(features_dict["player_kart_center"], teammate_center)
-      features_dict["player_to_%s_angle" % teammate_name] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_center"], player_to_teammate_angle)
+      # Save this newly initialized model for rollouts
+      self.model.to(DEVICE)
+      save_model(self.model)
 
-    # Flatten out features_dictionary into a feature_list
-    features_list = []
-    for value in features_dict.values():
-
-      # Multi-dimensional value tensors need to be unrolled
-      if value.size() and value.size()[0] > 1:
-        for x in value:
-          features_list.append(x)
-          
-      else:
-        features_list.append(value)
-
-    if DEBUG_EN:
-      print("printing feature_list dictionary")
-      for key, value in features_dict.items():
-        print(key, " - ", value)
-      
-      print("printing features_list")
-      for feature in features_list:
-        print(feature)
-
-    return torch.tensor(features_list, dtype=torch.float32)
+    # Initialize a trainer to perform network training
+    self.trainer = ActionNetworkTrainer(self.model, gamma=gamma, lr=lr, optimizer=optimizer)
   
-def get_kart_front(state):
-  return torch.tensor(state['kart']['front'], dtype=torch.float32)[[0, 2]]
 
-def get_kart_center(kart_state):
-  return get_object_center(kart_state["kart"])
+  # Add timestep information to memory
+  def memorize(self, prev_state, action, reward, curr_state, done):
+
+    # Return if prev_state is None
+    if prev_state is None:
+      return
+
+    # Save information as a tuple
+    self.memory.append((prev_state, action, reward, curr_state, done))
+
+
+  # Performs training step on a batch of timesteps from memory
+  def train_batch_timesteps(self):
+
+    # Get a sample if memory contains at least a batch size
+    if len(self.memory) > StateAgent.BATCH_SIZE:
+      mini_sample = random.sample(self.memory, StateAgent.BATCH_SIZE)
+    else:
+      mini_sample = self.memory # Otherwise just take the entire memory as a batch
+
+    # Convert mini_sample into a list of state_features, actions, rewards, & dones
+    prev_states_features, actions, rewards, curr_states_features, dones = zip(*mini_sample)
+
+    self.trainer.train_step(prev_states_features, actions, rewards, curr_states_features, dones)
+
+
+  # Performs training step on a single timestep
+  def train_immediate_timestep(self, prev_state_features, action, reward, curr_state_features, done):
+    self.trainer.train_step(prev_state_features, action, reward, curr_state_features, done)
+
+
+  # Gets an action tensor for a timestep
+  def get_action_tensor(self, state_features):
+    
+    epsilon = ACTION_TENSOR_EPSILON_THRESHOLD - self.n_games
+
+    # Either take a random action (exploration)
+    # or prediction action from the model (exploitation).
+    # Likeihood of random action decays as number of games increases
+    if random.randint(0, 200) < epsilon:
+        action_tensor = self.get_random_action()
+    else:
+        action_tensor = self.model(state_features)
+
+    return action_tensor
   
-def get_obj1_to_obj2_angle(object1_center, object2_center):
-  object1_direction = get_obj1_to_obj2_direction(object1_center, object2_center)
-  return torch.atan2(object1_direction[1], object1_direction[0])
 
-def get_obj1_to_obj2_direction(object1_center, object2_center):
-  return (object2_center-object1_center) / torch.norm(object2_center-object1_center)
+  # Use thresholding for boolean actions
+  def get_random_action(self):
+    acceleration = random.random() # between 0 to 1
+    steer = random.uniform(-1, 1)
+    brake = random.random() > 0.5
+    drift = random.random() > 0.5
+    fire = random.random() > 0.5
+    nitro = random.random() > 0.5
 
-def get_object_center(state_dict):
-  return torch.tensor(state_dict['location'], dtype=torch.float32)[[0, 2]]
+    return torch.tensor((acceleration,
+                        steer,
+                        brake,
+                        drift,
+                        fire,
+                        nitro),
+                      device=DEVICE)
 
-def get_puck_center(puck_state):
-  return get_object_center(puck_state["ball"])
-
-def get_team_goal_line(puck_state, team_id):
-  return torch.tensor(puck_state['goal_line'][team_id], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
-
-# limit angle between -1 to 1
-def limit_period(angle):
-  return angle - torch.floor(angle / 2 + 0.5) * 2 
-
-def get_obj1_to_obj2_angle_difference(object1_angle, object2_angle):
-  angle_difference = (object1_angle - object2_angle) / np.pi
-  return limit_period(angle_difference)
-
-# Assumes there are always two teams (0 and 1)
-def get_opponent_team_id(team_id):
-  return (team_id+1) % 2
-
-
-# Assumes network outputs 6 different actions
-# Output channel order: [acceleration, steer, brake, drift, fire, nitro]
-# REVIST: Using simple thresholding for boolean actions for now
-def get_action_dictionary_from_network_output(network_output):
-      return dict(acceleration=network_output[0],
-                  steer=network_output[1],
-                  brake=(network_output[2] > 0.5),
-                  drift=(network_output[3] > 0.5),
-                  fire=(network_output[4] > 0.5),
-                  nitro=(network_output[5] > 0.5)
-                  )
 
 class Team:
     agent_type = 'state'
@@ -193,3 +191,157 @@ class Team:
           actions.append(get_action_dictionary_from_network_output(network_output))
 
         return actions
+
+
+def get_features(player_state, team_state, opponent_states, puck_state, team_id):
+
+    # Collect features inside a dictionary
+    features_dict = {}
+
+    # Get player features
+    features_dict["player_kart_front"] = get_kart_front(player_state)
+    features_dict["player_kart_center"] = get_kart_center(player_state)
+    features_dict["player_kart_angle"] = get_obj1_to_obj2_angle(features_dict["player_kart_front"], features_dict["player_kart_center"])
+
+    # Get puck features
+    features_dict["puck_center"] = get_puck_center(puck_state)
+    features_dict["kart_to_puck_angle"]  = get_obj1_to_obj2_angle(features_dict["player_kart_center"], features_dict["puck_center"]) 
+
+    # Get goal line features
+    # - Opponent goal line i.e. the goal that this team is targetting
+    features_dict["opponent_goal_line_center"] = get_team_goal_line(puck_state, get_target_goal_by_team_id(team_id))
+    features_dict["puck_to_opponent_goal_line_angle"] = get_obj1_to_obj2_angle(features_dict["puck_center"], features_dict["opponent_goal_line_center"])
+    features_dict["kart_to_opponent_goal_line_difference"] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_angle"], features_dict["puck_to_opponent_goal_line_angle"])
+
+    # - Team goal line i.e. the goal that the opponent team is targetting
+    features_dict["team_goal_line_center"] = get_team_goal_line(puck_state, get_target_goal_by_team_id(team_id+1))
+    features_dict["puck_to_team_goal_line_angle"] = get_obj1_to_obj2_angle(features_dict["puck_center"], features_dict["team_goal_line_center"])
+    features_dict["kart_to_team_goal_line_difference"] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_angle"], features_dict["puck_to_team_goal_line_angle"])
+
+    # Get opponent features
+    for opponent_id, opponent_state in enumerate(opponent_states):
+      opponent_name = "opponent_%0d" % opponent_id
+      features_dict["%s_center" % opponent_name] = opponent_center = get_kart_center(opponent_state)
+      features_dict["player_to_%s_angle" % opponent_name] = player_to_opponent_angle = get_obj1_to_obj2_angle(features_dict["player_kart_center"], opponent_center)
+      features_dict["player_to_%s_angle_difference" % opponent_name] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_center"], player_to_opponent_angle)
+
+    # Get teammate features
+    for teammate_id, teammate_state in enumerate(team_state):
+      teammate_name = "teammate_%0d" % teammate_id
+      features_dict["%s_center" % teammate_name] = teammate_center = get_kart_center(teammate_state)
+      features_dict["player_to_%s_angle" % teammate_name] = player_to_teammate_angle = get_obj1_to_obj2_angle(features_dict["player_kart_center"], teammate_center)
+      features_dict["player_to_%s_angle_difference" % teammate_name] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_center"], player_to_teammate_angle)
+
+    # Flatten out features_dictionary into a feature_list
+    features_list = []
+    for value in features_dict.values():
+
+      # Multi-dimensional value tensors need to be unrolled
+      if value.size() and value.size()[0] > 1:
+        for x in value:
+          features_list.append(x)
+          
+      else:
+        features_list.append(value)
+
+    if DEBUG_EN:
+      print("printing feature_list dictionary")
+      for key, value in features_dict.items():
+        print(key, " - ", value)
+      
+      print("printing features_list")
+      for feature in features_list:
+        print(feature)
+
+    return torch.tensor(features_list, dtype=torch.float32)
+
+def get_kart_front(state):
+  return torch.tensor(state['kart']['front'], dtype=torch.float32)[[0, 2]]
+
+def get_kart_center(kart_state):
+  return get_object_center(kart_state["kart"])
+  
+def get_obj1_to_obj2_angle(object1_center, object2_center):
+  object1_direction = get_obj1_to_obj2_direction(object1_center, object2_center)
+  return torch.atan2(object1_direction[1], object1_direction[0])
+
+def get_obj1_to_obj2_direction(object1_center, object2_center):
+  return (object2_center-object1_center) / torch.norm(object2_center-object1_center)
+
+def get_object_center(state_dict):
+  return torch.tensor(state_dict['location'], dtype=torch.float32)[[0, 2]]
+
+def get_puck_center(puck_state):
+  return get_object_center(puck_state["ball"])
+
+def get_team_goal_line(puck_state, team_id):
+  return torch.tensor(puck_state['goal_line'][team_id], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
+
+# limit angle between -1 to 1
+def limit_period(angle):
+  return angle - torch.floor(angle / 2 + 0.5) * 2 
+
+def get_obj1_to_obj2_angle_difference(object1_angle, object2_angle):
+  angle_difference = (object1_angle - object2_angle) / np.pi
+  return limit_period(angle_difference)
+
+# Assumes there are always two teams (0 and 1)
+def get_target_goal_by_team_id(team_id):
+  return (team_id+1) % 2
+
+
+
+# TODO: Make this reward function more robust
+def get_reward(player_state, team_state, opponent_states, puck_state, team_id):
+  reward = 0
+
+  opponent_target_goal_line = get_team_goal_line(puck_state, get_target_goal_by_team_id(team_id+1))
+  team_target_goal_line = get_team_goal_line(puck_state, get_target_goal_by_team_id(team_id))
+  puck_center = get_puck_center(puck_state)
+  kart_center = get_kart_center(player_state)
+
+  if DEBUG_EN:
+    print("get_reward - distance to team's target goal line", get_obj1_to_obj2_distance(puck_center, team_target_goal_line))
+    print("get_reward - distance to opponent's  target goal line", get_obj1_to_obj2_distance(puck_center, opponent_target_goal_line))
+
+  if is_touching(kart_center, puck_center):
+    reward += 1
+    if DEBUG_EN:
+      print("player is touching the puck")
+
+  if is_puck_in_goal(puck_center, opponent_target_goal_line):
+    reward += -1000
+    if DEBUG_EN:
+      print("puck is in opponent target goal")
+  elif is_puck_in_goal(puck_center, team_target_goal_line):
+    reward += 1000
+    if DEBUG_EN:
+      print("puck is in team target goal")
+  
+  return torch.tensor(reward, dtype=torch.float32)
+
+def is_touching(object1_center, object2_center):
+  return get_obj1_to_obj2_distance(object1_center, object2_center) < OBJS_TOUCHING_DISTANCE_THRESHOLD
+
+def is_puck_in_goal(puck_center, goal_line):
+  return is_touching(puck_center, goal_line)
+
+def get_obj1_to_obj2_distance(object1_center, object2_center):
+  return F.pairwise_distance(object1_center, object2_center)
+
+
+# Assumes network outputs 6 different actions
+# Output channel order: [acceleration, steer, brake, drift, fire, nitro]
+# REVIST: Using simple thresholding for boolean actions for now
+def get_action_dictionary_from_network_output(network_output):
+    return dict(acceleration=torch.sigmoid(network_output[0]),
+                steer=torch.clamp(network_output[1], -1, 1),
+                brake=(network_output[2] > 0.5),
+                drift=(network_output[3] > 0.5),
+                fire=(network_output[4] > 0.5),
+                nitro=(network_output[5] > 0.5)
+                )
+
+# Get the score of a team using team_id.
+def get_score(puck_state, team_id):
+  return puck_state["score"][get_target_goal_by_team_id(team_id)]

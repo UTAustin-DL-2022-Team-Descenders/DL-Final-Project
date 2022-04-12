@@ -1,16 +1,16 @@
 from argparse import Action
 import torch
 import torch.nn.functional as F
+from torch.distributions import Bernoulli
 
-# Assumes extract_features returns 28 channels
-INPUT_CHANNELS = 28
+# Assumes extract_features returns 31 channels
+INPUT_CHANNELS = 31
 
 # Assumes network outputs 6 different actions
 # Output channel order: [acceleration, steer, brake, drift, fire, nitro]
 # Boolean outputs will be thresholded by 0.5
 OUTPUT_CHANNELS = 6
 
-# TODO: Currently a barebones network. Fix me!
 class ActionNetwork(torch.nn.Module):
 
     class Block(torch.nn.Module):
@@ -21,23 +21,119 @@ class ActionNetwork(torch.nn.Module):
         def forward(self, x):
             return F.relu(self.network(x))
 
-    def __init__(self, input_channels=INPUT_CHANNELS, output_channels=OUTPUT_CHANNELS):
+    def __init__(self, input_channels=INPUT_CHANNELS, hidden_layer_channels=[128], output_channels=OUTPUT_CHANNELS):
         super().__init__()
 
-        self.network = ActionNetwork.Block(input_channels, output_channels)
+        layers = []
+        for layer_channels in hidden_layer_channels:
+            layers.append(ActionNetwork.Block(input_channels, layer_channels))
+            input_channels = layer_channels
 
+        layers.append(torch.nn.Linear(input_channels, output_channels))
 
+        self.network = torch.nn.Sequential(*layers)
+
+    def save_model(self, model_name):
+        from os import path
+        model_scripted = torch.jit.script(self.network)
+        model_scripted.save(path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt'))
+
+    def load_model(self):
+        from os import path
+
+        load_path = path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt')
+        try:
+            model = torch.jit.load( load_path)
+            self.network = model
+            print("loaded pre-existing state_agent ActionNetwork")
+        except FileNotFoundError as e:
+            print("couldn't find existing model in %s" % load_path)
+        
     def forward(self, x):
         return self.network(x)
+        
+
+# Performs Reinforcement training for an ActionNetwork.
+# Using Deep Q Learning
+class ActionNetworkTrainer:
+    def __init__(self, model, lr=0.001, gamma=0.9, optimizer="ADAM"):
+        self.lr = lr
+        self.gamma = gamma
+        self.model = model
+
+        # Select optimizer
+        if optimizer.upper() == "ADAM":
+            self.optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
+        else:
+            self.optimizer = torch.optim.SGD(model.parameters(), lr=self.lr, momentum=0.9)
+        
+        self.loss_module = torch.nn.MSELoss()
+
+    def train_step(self, prev_state_features, action, reward, curr_state_features, done):
+
+        # Skip training for very first time step
+        if prev_state_features is None:
+            return
+
+        # Convert inputs to Tensors
+        if isinstance(prev_state_features, tuple):
+            prev_state_features = torch.stack(prev_state_features)
+            curr_state_features = torch.stack(curr_state_features)
+            action = torch.stack(action)
+            reward = torch.stack(reward)
+        else:
+            prev_state_features = torch.unsqueeze(prev_state_features, 0)
+            curr_state_features = torch.unsqueeze(curr_state_features, 0)
+            action = torch.unsqueeze(action, 0)
+            reward = torch.unsqueeze(reward, 0)
+            done = (done, )
+
+        # Deep Learning Q START
+        # 1: predicted Q values with current prev_state_features
+        pred = self.model(prev_state_features)
+
+        # 2: Q_new = r + y * max(next_predicted Q value) -> only do this if not done
+        target = pred.clone()
+
+        # Iterate over items in batch
+        for idx in range(len(done)):
+
+            # default Q_new is simply the reward
+            Q_new = reward[idx]
+
+            # If not done, Q_new is reward + discount_rate_gamma * <highest confidence action for current state>
+            if not done[idx]:
+                Q_new = reward[idx] + self.gamma * self.model(curr_state_features[idx])
+        
+            # Set the target's action to Q_new
+            target[idx] = Q_new
+        
+        self.optimizer.zero_grad()
+        loss = self.loss_module(target, pred)
+        loss.backward()
+        # Deep Learning Q END
+
+        self.optimizer.step()
 
 
+# StateAgent agnostic Save & Load model functions. Used in state_agent.py Match
 def save_model(model):
     from os import path
     model_scripted = torch.jit.script(model)
-    model_scripted.save(path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt'))
+    model_scripted.save(path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt' ))
 
 
 def load_model():
     from os import path
-    model = torch.jit.load( path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt'))
-    return model
+    import sys
+    load_path = path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt')
+    try:
+        model = torch.jit.load(load_path)
+        print("Loaded pre-existing ActionNetwork from", load_path)
+        return model
+    except FileNotFoundError as e:
+        print("Couldn't find existing model in %s" % load_path)
+        sys.exit()
+    except ValueError as e:
+        print("Couldn't find existing model in %s" % load_path)
+        sys.exit()

@@ -1,13 +1,13 @@
-from .. import ActionNetwork, save_model 
+from .. import ActionNetwork, save_model, load_model
 from ..state_agent import get_features
-import torch
+import torch, os
 import torch.utils.tensorboard as tb
 import numpy as np
 from ..utils import accuracy, get_pickle_files, load_recording
 
-# TODO: Fix me!
-LOGDIR_PATH = ""
-TRAINING_PATH = ""
+LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'logdir')
+TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'imitation_data')
+DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 DEBUG_EN = True
 ACCURARY_CLOSE_PERCENT = 0.1
@@ -19,18 +19,16 @@ IMITATION_TEAM_KEY = "team%0d_state" % IMITATION_TEAM_NUM
 OPPONENT_TEAM_KEY = "team%0d_state" % OPPONENT_TEAM_NUM
 
 def train(args):
-    from os import path
 
-    # Use CUDA if available
-    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-    if DEBUG_EN:
-        print('device = ', device)
+    if args.load_model:
+        model = load_model()
+    else:
+        model = ActionNetwork()
 
-    model = ActionNetwork()
-    model.to(device)
+    model.to(DEVICE)
     train_logger = None
     if args.logdir is not None:
-        train_logger = tb.SummaryWriter(path.join(args.logdir, 'train'))
+        train_logger = tb.SummaryWriter(os.path.join(args.logdir, 'train'))
 
     # Get model parameters
     parameters = model.parameters()
@@ -91,8 +89,8 @@ def train(args):
                     action_labels = convert_action_dictionary_to_tensor(action_label_dict)
                 
                     # Use CUDA if available to speed up training
-                    player_features = player_features.to(device)
-                    action_labels = action_labels.to(device)
+                    player_features = player_features.to(DEVICE)
+                    action_labels = action_labels.to(DEVICE)
 
                     # Zero out gradient for this iteration
                     optimizer.zero_grad()
@@ -124,6 +122,7 @@ def train(args):
 
     save_model(model)
 
+
 # Assumes network outputs 6 different actions
 # Output channel order: [acceleration, steer, brake, drift, fire, nitro]
 # Uses default value of 0 if key is not found
@@ -142,14 +141,12 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--logdir', default=LOGDIR_PATH)
-    parser.add_argument('-dp', '--dataset', type=str, help="Path to dataset")
+    parser.add_argument('-dp', '--dataset', type=str, help="Path to imitation pkl data", default=TRAINING_PATH)
     parser.add_argument('-lr', '--learning_rate', type=float, default=0.01, help="Learning rate of the model")
     parser.add_argument('-ep', '--epochs', type=int, default=10, help="Number of epochs to train model over")
+    parser.add_argument('-ld', '--load_model', action='store_true', help="Load an existing state_agent model to continue training. Using state_agent/state_agent.pt")
 
-    args = parser.parse_known_args()[0]
-
-    if args.dataset is None:
-        exit("Error: --dataset parameter must be provided")
+    args = parser.parse_args()
 
     train(args)
 
