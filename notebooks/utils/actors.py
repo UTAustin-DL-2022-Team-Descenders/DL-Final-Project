@@ -20,8 +20,8 @@ class Actor:
 
         action = pystk.Action()
         action.acceleration = 1.0
-        steer_dist = Bernoulli(logits=output[0])
-        action.steer = steer_dist.sample()*2-1
+        steer_dist = Normal(loc=output[0], scale=0.75)
+        action.steer = steer_dist.sample()
         return action
 
 class GreedyActor:
