@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from torch.distributions import Bernoulli
 from utils.utils import rollout_many, device
-from utils.track import state_features
+from utils.track import state_features, three_points_on_track, cart_lateral_distance
 from utils.actors import Actor, GreedyActor
 
 def reinforce(action_net, 
@@ -28,22 +28,57 @@ def reinforce(action_net,
         features = []
         returns = []
         actions = []
+
+        # state features
         for trajectory in trajectories:
             for i in range(len(trajectory)):
+                # Compute the features                
                 state = state_features(**trajectory[i])
-                state20 = state_features(**trajectory[min(i+T, len(trajectory)-1)])                        
+                features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
+
+        it = 0
+
+        for trajectory in trajectories:
+            for i in range(len(trajectory)):                
+                lateral_sum = 0
+                
                 # Compute the returns
-                overall_distance = trajectory[min(i+T, len(trajectory)-1)]['kart_info'].overall_distance - \
-                    trajectory[i]['kart_info'].overall_distance
+
+                # if the kart is off center too much
+                kart_info = trajectory[i]['kart_info']
+                track_info = trajectory[i]['track_info'] 
+                points = three_points_on_track(kart_info.distance_down_track, track_info)
+                current_lat = cart_lateral_distance(kart_info, points)
+                    
+                kart_info = trajectory[min(i+T, len(trajectory)-1)]['kart_info']
+                track_info = trajectory[min(i+T, len(trajectory)-1)]['track_info']
+                points = three_points_on_track(kart_info.distance_down_track, track_info)
+                next_lat = cart_lateral_distance(kart_info, points)
+
+                reward = 0
+
+                if np.abs(current_lat) > 1:
+                    # if the lateral distance shrinking?
+                    if np.abs(next_lat) < np.abs(current_lat):
+                        # less strong reward
+                        reward = 1
+                    else:
+                        # no reward
+                        reward = 0
+                else:
+                    # strong reward
+                    reward = 2
+                    
+            
                 #lateral_distance = state20[0,2]
                 #print(state20, state)
                 #print(lateral_distance)
-                #returns.append(-(lateral_distance ** 2))
-                returns.append(overall_distance)
-                # Compute the features
-                features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
+                returns.append(reward)
+                #returns.append(overall_distance)
                 # Store the action that we took
                 actions.append( trajectory[i]['action'].steer > 0 )
+
+            it += len(trajectory)
         
         # Upload everything to the GPU
         returns = torch.as_tensor(returns, dtype=torch.float32)

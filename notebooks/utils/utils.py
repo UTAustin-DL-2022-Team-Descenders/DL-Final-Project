@@ -84,8 +84,8 @@ def show_video(data, fps=30):
     display(Video('/tmp/test.mp4', width=800, height=600, embed=True))
 
 viz_rollout = Rollout.remote(400, 300)
-def show_agent(agent, n_steps=600):
-    data = ray.get(viz_rollout.__call__.remote(agent, n_steps=n_steps))
+def show_agent(agent, n_steps=600, rollout=viz_rollout):
+    data = ray.get(rollout.__call__.remote(agent, n_steps=n_steps))
     show_video(data)
     
 rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5) for i in range(10)]
