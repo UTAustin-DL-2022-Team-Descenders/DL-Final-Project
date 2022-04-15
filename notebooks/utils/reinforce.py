@@ -6,10 +6,17 @@ from utils.utils import rollout_many, device
 from utils.track import state_features, three_points_on_track, cart_lateral_distance
 from utils.actors import Actor, GreedyActor
 
+def collect_dist(trajectories):
+    results = []
+    for trajectory in trajectories:
+        results.append(trajectory[-1]['kart_info'].overall_distance)
+    return np.array(results).mean()
+
 def reinforce(action_net, 
              n_epochs = 10,
             n_trajectories = 100,
             n_iterations =100,
+            n_validations = 20,
             batch_size = 128,
             T = 20):
 
@@ -106,11 +113,16 @@ def reinforce(action_net,
             optim.step()
             avg_expected_log_return.append(float(expected_log_return))
             
-        best_performance, current_performance = rollout_many([GreedyActor(best_action_net), GreedyActor(action_net)], n_steps=600)
+        best_performance = rollout_many([GreedyActor(best_action_net)] * n_validations, n_steps=600)
+        current_performance = rollout_many([GreedyActor(action_net)] * n_validations, n_steps=600)
         
-        print('epoch = %d   best_dist = '%epoch, best_performance[-1]['kart_info'].overall_distance)
+        # compute mean performance
+        best_dist = collect_dist(best_performance)
+        dist = collect_dist(current_performance)
+
+        print('epoch = %d  dist = %s, best_dist %s = '%(epoch, dist, best_dist))
         
-        if best_performance[-1]['kart_info'].overall_distance < current_performance[-1]['kart_info'].overall_distance:
+        if best_dist < dist:
             best_action_net = copy.deepcopy(action_net)
 
     return best_action_net
