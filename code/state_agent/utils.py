@@ -1,6 +1,7 @@
 import numpy as np
+from psutil import net_connections
 import pystk
-import os
+import os, subprocess, random
 import torch
 
 from glob import glob
@@ -9,6 +10,8 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms.functional as TF
 from enum import IntEnum
 
+TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'imitation_data')
+TRAINING_OPPONENT_LIST = ["jurgen_agent", "geoffrey_agent", "yann_agent", "yoshua_agent"]
 
 RESCUE_TIMEOUT = 30
 TRACK_OFFSET = 15
@@ -166,10 +169,103 @@ def load_recording(recording):
             except EOFError:
                 break
 
+def clean_pkl_files_and_rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
+    clean_pkl_files(output_dir)
+    rollout_many(num_rollouts, training_opponent, agent_team_num, output_dir)
+
+
+def clean_pkl_files(output_dir):
+    if os.path.exists(os.path.dirname(output_dir)):
+        pkl_file_list = get_pickle_files(output_dir)
+        for pkl_file in pkl_file_list:
+            os.remove(pkl_file)
+
+
+# Rollout a number of games calling tournament runner -j (i.e. --parallel) using subprocess
+def rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
+
+    if not os.path.exists(os.path.dirname(output_dir)):
+        os.makedirs(output_dir)
+
+    output_dir = os.path.join(output_dir, "reinforce_data.pkl")
+
+    run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir, "-j", str(num_rollouts)]
+
+    # Set training opponent
+    if training_opponent == "random":
+        training_opponent = get_random_opponent()
+
+    # Rollout with state_agent on appropriate Team
+    if agent_team_num == 1:
+        run_cmd += ["state_agent", training_opponent]
+    else:
+        run_cmd += [training_opponent, "state_agent"]
+    
+    output = subprocess.check_output(run_cmd)
+
+
+# Rollout just a single game by calling tournament runner using subprocess
+def rollout(team1="random", team2="random", output_dir=TRAINING_PATH, record_state=True, record_video=False, iteration=0):
+
+    if not os.path.exists(os.path.dirname(output_dir)):
+        os.mkdir(output_dir)
+    
+    run_cmd = ["python", "-m", "tournament.runner"]
+
+    if team1 == "random":
+        team1 = get_random_opponent()
+
+    if team2 == "random":
+        team2 = get_random_opponent()
+
+    rollout_name = "%0d_%s_v_%s" % (iteration, team1, team2)
+
+    if record_state:
+        state_output = os.path.join(output_dir, "%s.pkl" % rollout_name)
+        run_cmd += ["-s", state_output]
+
+    if record_video:
+        video_output = os.path.join(output_dir, "%s.mp4" % rollout_name)
+        run_cmd += ["-r", video_output]
+
+    run_cmd += [team1, team2]
+    
+    output = subprocess.check_output(run_cmd)
+
+
+def get_random_opponent():
+    return random.choice(TRAINING_OPPONENT_LIST)
 
 # Returns accuracy between prediction and labels within pct_close
 def accuracy(prediction, labels, pct_close):
   n_items = len(labels)
-  n_correct = torch.sum((torch.abs(prediction - labels) < torch.abs(pct_close * labels)))
-  acc = (n_correct.item() * 100.0 / n_items)  # scalar
+  n_correct = torch.sum((torch.abs(prediction - labels) < pct_close ))
+  acc = (n_correct.item() / n_items)  # scalar
   return acc
+
+def generate_imitation_data(args):
+
+    if args.clean:
+        clean_pkl_files(args.datapath)
+
+    for i in range(args.n_trajectories):
+        rollout(args.team1, args.team2, args.datapath, args.record_video, i)
+
+
+if __name__ == "__main__":
+
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-dp', '--datapath', default=TRAINING_PATH, help="Datapath directory for generated data")
+    parser.add_argument('-nt', '--n_trajectories', type=int, default=1, help="Number of trajectories to rollout per epoch. Be careful going too high on this to avoid running out of memory!")
+    parser.add_argument('--record_video', action='store_true', help="Record a .mp4 video for every game")
+    parser.add_argument('--clean', action='store_true', help="Clean datapath directory")
+    parser.add_argument('--team1', type=str, default="random", choices=["random"]+TRAINING_OPPONENT_LIST, help="Team1 agent. Defaults to random agent")
+    parser.add_argument('--team2', type=str, default="random", choices=["random"]+TRAINING_OPPONENT_LIST, help="Team2 agent. Defaults to random agent")
+    # TODO: Any more knobs to add?
+
+    args = parser.parse_args()
+
+    generate_imitation_data(args)

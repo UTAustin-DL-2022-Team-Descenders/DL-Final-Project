@@ -16,12 +16,16 @@ class ActionNetwork(torch.nn.Module):
     class Block(torch.nn.Module):
         def __init__(self, n_input, n_output):
             super().__init__()
-            self.network = torch.nn.Linear(n_input, n_output)
+
+            self.network = torch.nn.Sequential(
+                torch.nn.Linear(n_input, n_output),
+                torch.nn.ReLU()
+            )
 
         def forward(self, x):
-            return F.relu(self.network(x))
+            return self.network(x)
 
-    def __init__(self, input_channels=INPUT_CHANNELS, hidden_layer_channels=[128], output_channels=OUTPUT_CHANNELS):
+    def __init__(self, input_channels=INPUT_CHANNELS, hidden_layer_channels=[64, 128, 256], output_channels=OUTPUT_CHANNELS):
         super().__init__()
 
         layers = []
@@ -32,26 +36,9 @@ class ActionNetwork(torch.nn.Module):
         layers.append(torch.nn.Linear(input_channels, output_channels))
 
         self.network = torch.nn.Sequential(*layers)
-
-    def save_model(self, model_name):
-        from os import path
-        model_scripted = torch.jit.script(self.network)
-        model_scripted.save(path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt'))
-
-    def load_model(self):
-        from os import path
-
-        load_path = path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt')
-        try:
-            model = torch.jit.load( load_path)
-            self.network = model
-            print("loaded pre-existing state_agent ActionNetwork")
-        except FileNotFoundError as e:
-            print("couldn't find existing model in %s" % load_path)
         
     def forward(self, x):
         return self.network(x)
-        
 
 # Performs Reinforcement training for an ActionNetwork.
 # Using Deep Q Learning
@@ -88,19 +75,19 @@ class ActionNetworkTrainer:
             reward = torch.unsqueeze(reward, 0)
             done = (done, )
 
-        # Deep Learning Q START
+        ## Deep Learning Q START
         # 1: predicted Q values with current prev_state_features
         pred = self.model(prev_state_features)
-
+        
         # 2: Q_new = r + y * max(next_predicted Q value) -> only do this if not done
         target = pred.clone()
-
+        
         # Iterate over items in batch
         for idx in range(len(done)):
-
+        
             # default Q_new is simply the reward
             Q_new = reward[idx]
-
+        
             # If not done, Q_new is reward + discount_rate_gamma * <highest confidence action for current state>
             if not done[idx]:
                 Q_new = reward[idx] + self.gamma * self.model(curr_state_features[idx])
@@ -112,6 +99,22 @@ class ActionNetworkTrainer:
         loss = self.loss_module(target, pred)
         loss.backward()
         # Deep Learning Q END
+
+        # Reinforce START
+        # forward feed features through action network and get output
+        #output = self.model(prev_state_features)
+        #
+        ## Create a steering policy from Bernoulli distribtuion of network output
+        #steer_policy = Bernoulli(probs=output[:,1])
+        #
+        ## expected log return is the log probability of the policy for the actions taken (batch_actions) times the returns we gotten.
+        ## Then take the mean
+        #expected_log_return = (steer_policy.log_prob(action[:,1] > 0)*reward).mean()
+        #self.optimizer.zero_grad()
+        #
+        ## Take the negative expected log return to call backwards
+        #(-expected_log_return).backward()
+        # Reinforce END
 
         self.optimizer.step()
 

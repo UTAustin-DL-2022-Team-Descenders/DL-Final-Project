@@ -2,14 +2,14 @@ import subprocess
 import torch
 import torch.utils.tensorboard as tb
 import os, random
-from ..utils import get_pickle_files, load_recording
+from ..utils import *
 from ..state_agent import get_features, get_reward, get_score, StateAgent
 from .. import save_model
 
 LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'logdir')
 TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'reinforce_data')
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-TRAINING_OPPONENT_LIST = ["jurgen_agent", "geoffrey_agent", "yann_agent", "yoshua_agent"]
+RECORD_VIDEO_CADENCE = 1
 
 # Training Knobs
 
@@ -25,7 +25,8 @@ def train_reinforce(args):
                         gamma=args.gamma
                         )
 
-    for _ in range(args.epochs):
+    #for _ in range(args.epochs):
+    while True:
 
         # Set training opponent so it's visible to end of game results print
         training_opponent = args.training_opponent if args.training_opponent != "random" else get_random_opponent()
@@ -39,6 +40,11 @@ def train_reinforce(args):
                                         training_opponent=training_opponent, 
                                         agent_team_num=agent_team_num,
                                         output_dir=TRAINING_PATH)
+
+        # Periodically record video to see how the agent is doing
+        if state_agent.n_games > 0 and state_agent.n_games % RECORD_VIDEO_CADENCE == 0:
+            rollout("state_agent", "state_agent", os.path.abspath(os.path.dirname(__file__)), record_state=False, record_video=True, iteration=state_agent.n_games)
+            print("Game %0d recorded" % state_agent.n_games)
 
         training_pkl_file_list = get_pickle_files(TRAINING_PATH)
         
@@ -95,74 +101,16 @@ def train_reinforce(args):
                 state_agent.train_batch_timesteps()
 
                 # get the final score
-                score = get_score(state_data_dictionaries["soccer_state"], agent_team_num)
+                agent_score = get_score(state_data_dictionaries["soccer_state"], agent_team_num)
+                opponent_score = get_score(state_data_dictionaries["soccer_state"], opponent_team_num)
 
-                print("Game %0d - Agent on Team %0d, goals scored against %s: %0d" % (state_agent.n_games, agent_team_num, training_opponent, score))
+                print("Game %0d - StateAgent (Team %0d) scored %0d versus %s (Team %0d) scored %0d" % 
+                        (state_agent.n_games, agent_team_num, agent_score, training_opponent, opponent_team_num, opponent_score))
 
                 # Save this model if the score improved (or stayed the same)
-                if score >= best_score:
-                    best_score = score
+                if agent_score >= best_score:
+                    best_score = agent_score
                     save_model(state_agent.model)
-
-def clean_pkl_files_and_rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
-    clean_pkl_files(output_dir)
-    rollout_many(num_rollouts, training_opponent, agent_team_num, output_dir)
-
-
-def clean_pkl_files(output_dir):
-    if os.path.exists(os.path.dirname(output_dir)):
-        pkl_file_list = get_pickle_files(output_dir)
-        for pkl_file in pkl_file_list:
-            os.remove(pkl_file)
-
-
-# Rollout a number of games calling tournament runner -j (i.e. --parallel) using subprocess
-def rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
-
-    if not os.path.exists(os.path.dirname(output_dir)):
-        os.makedirs(output_dir)
-
-    output_dir = os.path.join(output_dir, "reinforce_data.pkl")
-
-    run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir, "-j", str(num_rollouts)]
-
-    # Set training opponent
-    if training_opponent == "random":
-        training_opponent = get_random_opponent()
-
-    # Rollout with state_agent on appropriate Team
-    if agent_team_num == 1:
-        run_cmd += ["state_agent", training_opponent]
-    else:
-        run_cmd += [training_opponent, "state_agent"]
-    
-    output = subprocess.check_output(run_cmd)
-
-
-# Rollout just a single game by calling tournament runner using subprocess
-def rollout(training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
-
-    if not os.path.exists(os.path.dirname(output_dir)):
-        os.mkdir(output_dir)
-
-    output_dir = os.path.join(output_dir, "reinforce_data.pkl")
-
-    run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir]
-
-    if training_opponent == "random":
-        training_opponent = get_random_opponent()
-
-    # Rollout with state_agent on appropriate Team
-    if agent_team_num == 1:
-        run_cmd += ["state_agent", training_opponent]
-    else:
-        run_cmd += [training_opponent, "state_agent"]
-    
-    output = subprocess.check_output(run_cmd)
-
-
-def get_random_opponent():
-    return random.choice(TRAINING_OPPONENT_LIST)
 
 
 if __name__ == '__main__':
@@ -177,7 +125,7 @@ if __name__ == '__main__':
     parser.add_argument('-ep', '--epochs', type=int, default=1, help="Number of epochs to train model over")
     parser.add_argument('-nt', '--n_trajectories', type=int, default=1, help="Number of trajectories to rollout per epoch. Be careful going too high on this to avoid running out of memory!")
     parser.add_argument('-ld', '--load_model', action='store_true', help="Load an existing state_agent model to continue training. Using state_agent/state_agent.pt")
-    parser.add_argument('--training_opponent', type=str, default="random", choices=["random"]+TRAINING_OPPONENT_LIST, help="Training opponent for state_agent per epoch. Defaults to random opponent")
+    parser.add_argument('--training_opponent', type=str, default="random", choices=["random", "state_agent"]+TRAINING_OPPONENT_LIST, help="Training opponent for state_agent per epoch. Defaults to random opponent")
     parser.add_argument('--agent_team', type=int, default=0, choices=[0,1,2], help="Team number for State agent per epoch. Defaults to 0 that will randomize team number per epoch")
     # TODO: Any more knobs to add?
 

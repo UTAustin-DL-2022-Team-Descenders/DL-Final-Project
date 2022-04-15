@@ -1,6 +1,7 @@
+from distutils.debug import DEBUG
 from .. import ActionNetwork, save_model, load_model
-from ..state_agent import get_features
-import torch, os
+from ..state_agent import *
+import torch, os, sys
 import torch.utils.tensorboard as tb
 import numpy as np
 from ..utils import accuracy, get_pickle_files, load_recording
@@ -9,7 +10,7 @@ LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'logdir')
 TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'imitation_data')
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-DEBUG_EN = True
+DEBUG_EN = False
 ACCURARY_CLOSE_PERCENT = 0.1
 
 IMITATION_TEAM_NUM = 1
@@ -28,7 +29,7 @@ def train(args):
     model.to(DEVICE)
     train_logger = None
     if args.logdir is not None:
-        train_logger = tb.SummaryWriter(os.path.join(args.logdir, 'train'))
+        train_logger = tb.SummaryWriter(os.path.join(args.logdir, 'imitation_training'), flush_secs=1)
 
     # Get model parameters
     parameters = model.parameters()
@@ -50,6 +51,10 @@ def train(args):
     # Load Data
     training_pkl_file_list = get_pickle_files(args.dataset)
 
+    if not training_pkl_file_list:
+        print("No .pkl files found in %s" % args.dataset)
+        sys.exit(-1)
+
     global_step = 0
 
     # Iterate over epochs
@@ -64,6 +69,9 @@ def train(args):
         # Iterate over each game
         # TODO: maybe there's a better way to randomize training across games?
         for pkl_file in training_pkl_file_list:
+
+            if DEBUG_EN:
+                print("pkl_file - ", pkl_file)
 
             # Iterate over each timestep in a game recording
             # State_data_dictionaries keys includes team1_state, team2_state, actions, soccer_state
@@ -84,8 +92,13 @@ def train(args):
                                                     opponent_states, state_data_dictionaries["soccer_state"],
                                                     IMITATION_TEAM_NUM)
 
+                    if IMITATION_TEAM_NUM == 1:
+                        player_action_index = 0 if player_num == 0 else 2
+                    else:
+                        player_action_index = 1 if player_num == 0 else 3
+
                     # Get action labels from dictionary
-                    action_label_dict = state_data_dictionaries["actions"][player_num]
+                    action_label_dict = state_data_dictionaries["actions"][player_action_index]
                     action_labels = convert_action_dictionary_to_tensor(action_label_dict)
                 
                     # Use CUDA if available to speed up training
@@ -97,6 +110,10 @@ def train(args):
 
                     # Forward pass input through model to get prediction
                     prediction = model(player_features)
+
+                    if DEBUG_EN:
+                        print("prediction    - ", prediction)
+                        print("action_labels - ", action_labels)
 
                     # Foward pass prediction and heatmap through loss module to get loss
                     loss = mse_loss_module(input=prediction, target=action_labels)
@@ -143,7 +160,7 @@ def main():
     parser.add_argument('--logdir', default=LOGDIR_PATH)
     parser.add_argument('-dp', '--dataset', type=str, help="Path to imitation pkl data", default=TRAINING_PATH)
     parser.add_argument('-lr', '--learning_rate', type=float, default=0.01, help="Learning rate of the model")
-    parser.add_argument('-ep', '--epochs', type=int, default=10, help="Number of epochs to train model over")
+    parser.add_argument('-ep', '--epochs', type=int, default=2, help="Number of epochs to train model over")
     parser.add_argument('-ld', '--load_model', action='store_true', help="Load an existing state_agent model to continue training. Using state_agent/state_agent.pt")
 
     args = parser.parse_args()
