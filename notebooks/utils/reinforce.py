@@ -39,7 +39,7 @@ def reinforce(actor,
         features = []
         returns = []
         actions = []
-        loss = []
+        losses = []
         
         # state features
         for trajectory in trajectories:
@@ -51,6 +51,9 @@ def reinforce(actor,
         it = 0
 
         for trajectory in trajectories:
+
+            loss = []
+
             for i in range(len(trajectory)):                
                 lateral_sum = 0
                 
@@ -94,6 +97,7 @@ def reinforce(actor,
                 actions.append( trajectory[i]['action'].steer > 0 )
 
             it += len(trajectory)
+            losses.append(np.sum(loss))
         
         # Upload everything to the GPU
         returns = torch.as_tensor(returns, dtype=torch.float32)
@@ -132,7 +136,7 @@ def reinforce(actor,
         best_dist = collect_dist(best_performance)
         dist = collect_dist(current_performance)
 
-        print('epoch = %d loss %d, dist = %d, best_dist = %d '%(epoch, np.abs(np.sum(loss)), dist, best_dist))
+        print('epoch = %d loss %d, dist = %d, best_dist = %d '%(epoch, np.abs(np.mean(losses)), dist, best_dist))
         
         if best_dist < dist:
             best_action_net = copy.deepcopy(action_net)
