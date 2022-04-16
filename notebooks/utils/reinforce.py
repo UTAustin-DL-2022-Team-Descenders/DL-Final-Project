@@ -76,7 +76,6 @@ def reinforce(actor,
                                      )
                 
                 loss.append(current_lat)
-
             
                 #lateral_distance = state20[0,2]
                 #print(state20, state)
@@ -84,7 +83,9 @@ def reinforce(actor,
                 returns.append(reward) 
                 #returns.append(overall_distance)
                 # Store the action that we took
-                actions.append( trajectory[i]['action'].steer > 0 )
+                actions.append( 
+                    actor.extract_greedy_action(trajectory[i]['action'])
+                )
 
             it += len(trajectory)
             losses.append(np.sum(loss))

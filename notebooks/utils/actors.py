@@ -9,17 +9,24 @@ from utils.rewards import lateral_distance_reward
 def new_action_net():
     return torch.nn.Sequential(
         #torch.nn.BatchNorm1d(3*5*3),
-        torch.nn.Linear(3*5*3, 20, bias=False),
+        torch.nn.Linear(3*5*3, 20, bias=True),
         torch.nn.ReLU(),
-        torch.nn.Linear(20, 1, bias=False),
+        torch.nn.Linear(20, 1, bias=True),
         torch.nn.Sigmoid()
     )
-class SteeringActor:
-    def __init__(self, action_net):
+
+class BaseActor:
+
+    def __init__(self, action_net, train=None):
         self.action_net = action_net.cpu().eval()
+        self.train = train
+    
+class SteeringActor(BaseActor):
     
     def __call__(self, action, f, train=False, **kwargs):        
-        output = self.action_net(f)[0]        
+        output = self.action_net(f)[0]
+        if self.train is not None:
+            train = self.train
         if train:            
             steer_dist = Bernoulli(probs=output)
             action.steer = steer_dist.sample() * 2 - 1
@@ -29,19 +36,25 @@ class SteeringActor:
 
     def reward(self, current_lat=Inf, next_lat=Inf, **kwargs):
         return lateral_distance_reward(current_lat, next_lat)
+    
+    def extract_greedy_action(self, action):
+        return action.steer > 0
 
-class DriftActor:
-    def __init__(self, action_net):
-        self.action_net = action_net.cpu().eval()
+class DriftActor(BaseActor):
     
     def __call__(self, action, f, train=True, **kwargs):        
-        output = self.action_net(f)[0]        
+        output = self.action_net(f)[0] 
+        if self.train is not None:
+            train = self.train
         if train:
-            drift_dist = Bernoulli(probs=output[0])
+            drift_dist = Bernoulli(probs=output)
             action.drift = drift_dist.sample()
         else:
             action.drift = output[0]
         return action
+
+    def extract_greedy_action(self, action):
+        return action.drift > 0.5
 
 class Actor:
     def __init__(self, *args):
