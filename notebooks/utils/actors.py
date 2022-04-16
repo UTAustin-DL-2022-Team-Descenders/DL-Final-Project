@@ -44,4 +44,4 @@ class GreedyActor(Actor):
     
     def invoke_nets(self, action, f):
         for net in self.nets:
-            net(action, f, train=False)            
+            net(action, f, train=False)
