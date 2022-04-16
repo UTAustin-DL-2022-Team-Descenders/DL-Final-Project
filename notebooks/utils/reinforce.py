@@ -35,6 +35,7 @@ def reinforce(action_net,
         features = []
         returns = []
         actions = []
+        loss = []
 
         # state features
         for trajectory in trajectories:
@@ -63,6 +64,8 @@ def reinforce(action_net,
                 next_lat = cart_lateral_distance(kart_info, points)
 
                 reward = 0
+                
+                loss.append(next_lat)
 
                 if np.abs(current_lat) > 1:
                     # if the lateral distance shrinking?
@@ -105,7 +108,7 @@ def reinforce(action_net,
             batch_features = features[batch_ids]
             
             output = action_net(batch_features)
-            pi = Bernoulli(logits=output[:,0])
+            pi = Bernoulli(probs=output[:,0])
             
             expected_log_return = (pi.log_prob(batch_actions)*batch_returns).mean()
             optim.zero_grad()
@@ -120,7 +123,7 @@ def reinforce(action_net,
         best_dist = collect_dist(best_performance)
         dist = collect_dist(current_performance)
 
-        print('epoch = %d  dist = %s, best_dist %s = '%(epoch, dist, best_dist))
+        print('epoch = %d loss %d, dist = %d, best_dist = %d '%(epoch, np.abs(np.sum(loss)), dist, best_dist))
         
         if best_dist < dist:
             best_action_net = copy.deepcopy(action_net)

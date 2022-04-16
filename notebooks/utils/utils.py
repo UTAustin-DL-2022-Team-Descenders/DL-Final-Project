@@ -69,24 +69,35 @@ def show_video(data, fps=30):
     features = [state_features(**t) for t in data]
     directions = [cart_direction(t['kart_info']) for t in data]
     laterals = [cart_lateral_distance(t['kart_info'], three_points_on_track(t['kart_info'].distance_down_track, t['track_info'])) for t in data]
+    actions = [t['action'] for t in data]
 
     images = []
-    for frame, feature, distance, direction, lateral in zip(frames, features, distances, directions, laterals):
+    for frame, feature, distance, direction, lateral, action in zip(frames, features, distances, directions, laterals, actions):
         img = Image.fromarray(frame)        
         image_to_edit = ImageDraw.Draw(img)
         
         image_to_edit.text((10, 10), "Distance: {}".format(distance))
         image_to_edit.text((10, 20), "direction: {}".format(direction))         
         image_to_edit.text((10, 30), "lateral: {}".format(lateral))         
+        image_to_edit.text((10, 40), "steering: {}".format(action.steer))         
         images.append(np.array(img))
 
     imageio.mimwrite('/tmp/test.mp4', images, fps=fps, bitrate=1000000)
     display(Video('/tmp/test.mp4', width=800, height=600, embed=True))
 
+def show_steering_graph(data):
+    import matplotlib.pyplot as plt
+
+    steer = [t['action'].steer for t in data]
+    plt.plot(steer)
+    plt.show()
+
 viz_rollout = Rollout.remote(400, 300)
-def show_agent(agent, n_steps=600, rollout=viz_rollout):
+def run_agent(agent, n_steps=600, rollout=viz_rollout):
     data = ray.get(rollout.__call__.remote(agent, n_steps=n_steps))
     show_video(data)
+    show_steering_graph(data)
+    return data
     
 rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5) for i in range(10)]
 def rollout_many(many_agents, **kwargs):
