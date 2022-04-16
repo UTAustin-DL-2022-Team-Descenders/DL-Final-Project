@@ -66,6 +66,7 @@ def show_video(data, fps=30):
     
     frames = [d['image'] for d in data]    
     distances = [t['kart_info'].distance_down_track for t in data]
+    actions = [t['action'] for t in data]
     features = [state_features(**t) for t in data]
     directions = [cart_direction(t['kart_info']) for t in data]
     laterals = [cart_lateral_distance(t['kart_info'], three_points_on_track(t['kart_info'].distance_down_track, t['track_info'])) for t in data]

@@ -1,10 +1,10 @@
 import copy
 import torch
 import numpy as np
-from torch.distributions import Bernoulli
+from torch.distributions import Bernoulli, Normal
 from utils.utils import rollout_many, device
 from utils.track import state_features, three_points_on_track, cart_lateral_distance
-from utils.actors import Actor, GreedyActor
+from utils.actors import Actor, GreedyActor, SteeringActor
 
 def collect_dist(trajectories):
     results = []
@@ -29,7 +29,7 @@ def reinforce(action_net,
         eps = 1e-2
         
         # Roll out the policy, compute the Expectation
-        trajectories = rollout_many([Actor(action_net)]*n_trajectories, n_steps=600)
+        trajectories = rollout_many([Actor(SteeringActor(action_net))]*n_trajectories, n_steps=600)
         
         # Compute all the reqired quantities to update the policy
         features = []
@@ -67,18 +67,19 @@ def reinforce(action_net,
                 
                 loss.append(next_lat)
 
+                # lateral distance reward
                 if np.abs(current_lat) > 1:
+                
                     # if the lateral distance shrinking?
                     if np.abs(next_lat) < np.abs(current_lat):
                         # less strong reward
                         reward = 1
                     else:
                         # no reward
-                        reward = 0
+                        reward = -1
                 else:
                     # strong reward
-                    reward = 2
-                    
+                    reward = 2    
             
                 #lateral_distance = state20[0,2]
                 #print(state20, state)
@@ -116,8 +117,8 @@ def reinforce(action_net,
             optim.step()
             avg_expected_log_return.append(float(expected_log_return))
             
-        best_performance = rollout_many([GreedyActor(best_action_net)] * n_validations, n_steps=600)
-        current_performance = rollout_many([GreedyActor(action_net)] * n_validations, n_steps=600)
+        best_performance = rollout_many([GreedyActor(SteeringActor(best_action_net))] * n_validations, n_steps=600)
+        current_performance = rollout_many([GreedyActor(SteeringActor(action_net))] * n_validations, n_steps=600)
         
         # compute mean performance
         best_dist = collect_dist(best_performance)

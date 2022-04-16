@@ -12,29 +12,36 @@ def new_action_net():
         torch.nn.Sigmoid()
     )
 
+class SteeringActor:
+    def __init__(self, action_net):
+        self.action_net = action_net.cpu().eval()
+    
+    def __call__(self, action, f, train=False, **kwargs):        
+        output = self.action_net(f)[0]        
+        if train:            
+            steer_dist = Bernoulli(logits=output)
+            action.steer = steer_dist.sample() * 2 - 1
+        else:
+            action.steer = output[0] * 2 - 1
+        return action
 class Actor:
-    def __init__(self, action_net):
-        self.action_net = action_net.cpu().eval()
+    def __init__(self, *args):
+        self.nets = args
     
-    def __call__(self, track_info, kart_info, **kwargs):
-        f = state_features(track_info, kart_info)
-        output = self.action_net(torch.as_tensor(f).view(1,-1))[0]
+    def invoke_nets(self, action, f):
+        for net in self.nets:
+            net(action, f, train=True)        
 
-        action = pystk.Action()
+    def __call__(self, track_info, kart_info, **kwargs):
+        action = pystk.Action()        
         action.acceleration = 1.0
-        steer_dist = Bernoulli(probs=output)
-        action.steer = steer_dist.sample()*2-1
+        f = state_features(track_info, kart_info)
+        f = torch.as_tensor(f).view(1,-1)
+        self.invoke_nets(action, f)
         return action
 
-class GreedyActor:
-    def __init__(self, action_net):
-        self.action_net = action_net.cpu().eval()
+class GreedyActor(Actor):
     
-    def __call__(self, track_info, kart_info, **kwargs):
-        f = state_features(track_info, kart_info)
-        output = self.action_net(torch.as_tensor(f).view(1,-1))[0]
-
-        action = pystk.Action()
-        action.acceleration = 1.0
-        action.steer = output[0] * 2 - 1
-        return action
+    def invoke_nets(self, action, f):
+        for net in self.nets:
+            net(action, f, train=False)            
