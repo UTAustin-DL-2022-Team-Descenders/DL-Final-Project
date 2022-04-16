@@ -11,7 +11,6 @@ def new_action_net():
         torch.nn.Linear(20, 1, bias=False),
         torch.nn.Sigmoid()
     )
-
 class SteeringActor:
     def __init__(self, action_net):
         self.action_net = action_net.cpu().eval()
@@ -24,6 +23,20 @@ class SteeringActor:
         else:
             action.steer = output[0] * 2 - 1
         return action
+
+class DriftActor:
+    def __init__(self, action_net):
+        self.action_net = action_net.cpu().eval()
+    
+    def __call__(self, action, f, train=True, **kwargs):        
+        output = self.action_net(f)[0]        
+        if train:
+            drift_dist = Bernoulli(logits=output[0])
+            action.drift = drift_dist.sample()
+        else:
+            action.drift = output[0]
+        return action
+
 class Actor:
     def __init__(self, *args):
         self.nets = args

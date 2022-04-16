@@ -12,7 +12,8 @@ def collect_dist(trajectories):
         results.append(trajectory[-1]['kart_info'].overall_distance)
     return np.array(results).mean()
 
-def reinforce(action_net, 
+def reinforce(actor, 
+              actors,  
              n_epochs = 10,
             n_trajectories = 100,
             n_iterations =100,
@@ -20,23 +21,26 @@ def reinforce(action_net,
             batch_size = 128,
             T = 20):
 
+    action_net = actor.action_net
     best_action_net = copy.deepcopy(action_net)
 
     optim = torch.optim.Adam(action_net.parameters(), lr=1e-3)
 
+    slice_net = list(filter(lambda a: a != actor, actors))
 
     for epoch in range(n_epochs):
-        eps = 1e-2
+        eps = 1e-2  
         
         # Roll out the policy, compute the Expectation
-        trajectories = rollout_many([Actor(SteeringActor(action_net))]*n_trajectories, n_steps=600)
+        assert(actor.action_net == action_net)
+        trajectories = rollout_many([Actor(*slice_net, actor)]*n_trajectories, n_steps=600)
         
         # Compute all the reqired quantities to update the policy
         features = []
         returns = []
         actions = []
         loss = []
-
+        
         # state features
         for trajectory in trajectories:
             for i in range(len(trajectory)):
@@ -52,7 +56,7 @@ def reinforce(action_net,
                 
                 # Compute the returns
 
-                # if the kart is off center too much
+                # if the kart is off center too much 
                 kart_info = trajectory[i]['kart_info']
                 track_info = trajectory[i]['track_info'] 
                 points = three_points_on_track(kart_info.distance_down_track, track_info)
@@ -84,7 +88,7 @@ def reinforce(action_net,
                 #lateral_distance = state20[0,2]
                 #print(state20, state)
                 #print(lateral_distance)
-                returns.append(reward)
+                returns.append(reward) 
                 #returns.append(overall_distance)
                 # Store the action that we took
                 actions.append( trajectory[i]['action'].steer > 0 )
@@ -107,7 +111,7 @@ def reinforce(action_net,
             batch_returns = returns[batch_ids]
             batch_actions = actions[batch_ids]
             batch_features = features[batch_ids]
-            
+          
             output = action_net(batch_features)
             pi = Bernoulli(probs=output[:,0])
             
@@ -115,10 +119,14 @@ def reinforce(action_net,
             optim.zero_grad()
             (-expected_log_return).backward()
             optim.step()
-            avg_expected_log_return.append(float(expected_log_return))
+            avg_expected_log_return.append(float(expected_log_return))           
             
-        best_performance = rollout_many([GreedyActor(SteeringActor(best_action_net))] * n_validations, n_steps=600)
-        current_performance = rollout_many([GreedyActor(SteeringActor(action_net))] * n_validations, n_steps=600)
+
+        new_actor = actor.__class__(action_net)
+        best_actor = actor.__class__(best_action_net)
+        
+        best_performance = rollout_many([GreedyActor(*slice_net, best_actor)] * n_validations, n_steps=600)
+        current_performance = rollout_many([GreedyActor(*slice_net, new_actor)] * n_validations, n_steps=600)
         
         # compute mean performance
         best_dist = collect_dist(best_performance)
@@ -128,5 +136,6 @@ def reinforce(action_net,
         
         if best_dist < dist:
             best_action_net = copy.deepcopy(action_net)
+            actor = new_actor
 
     return best_action_net
