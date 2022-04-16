@@ -18,7 +18,7 @@ class SteeringActor:
     def __call__(self, action, f, train=False, **kwargs):        
         output = self.action_net(f)[0]        
         if train:            
-            steer_dist = Bernoulli(logits=output)
+            steer_dist = Bernoulli(probs=output)
             action.steer = steer_dist.sample() * 2 - 1
         else:
             action.steer = output[0] * 2 - 1
@@ -31,7 +31,7 @@ class DriftActor:
     def __call__(self, action, f, train=True, **kwargs):        
         output = self.action_net(f)[0]        
         if train:
-            drift_dist = Bernoulli(logits=output[0])
+            drift_dist = Bernoulli(probs=output[0])
             action.drift = drift_dist.sample()
         else:
             action.drift = output[0]
