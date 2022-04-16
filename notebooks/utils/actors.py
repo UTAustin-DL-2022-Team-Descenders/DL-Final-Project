@@ -5,9 +5,11 @@ from utils.track import state_features
 
 def new_action_net():
     return torch.nn.Sequential(
+        #torch.nn.BatchNorm1d(3*5*3),
         torch.nn.Linear(3*5*3, 20, bias=False),
         torch.nn.ReLU(),
         torch.nn.Linear(20, 1, bias=False),
+        torch.nn.Sigmoid()
     )
 
 class Actor:
@@ -20,8 +22,8 @@ class Actor:
 
         action = pystk.Action()
         action.acceleration = 1.0
-        steer_dist = Normal(loc=output[0], scale=0.75)
-        action.steer = steer_dist.sample()
+        steer_dist = Bernoulli(probs=output)
+        action.steer = steer_dist.sample()*2-1
         return action
 
 class GreedyActor:
@@ -34,5 +36,5 @@ class GreedyActor:
 
         action = pystk.Action()
         action.acceleration = 1.0
-        action.steer = output[0]
+        action.steer = output[0] * 2 - 1
         return action
