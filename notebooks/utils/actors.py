@@ -1,7 +1,10 @@
+from ast import In
+from numpy import Inf
 import pystk
 import torch
 from torch.distributions import Bernoulli, Normal
 from utils.track import state_features
+from utils.rewards import lateral_distance_reward
 
 def new_action_net():
     return torch.nn.Sequential(
@@ -23,6 +26,9 @@ class SteeringActor:
         else:
             action.steer = output[0] * 2 - 1
         return action
+
+    def reward(self, current_lat=Inf, next_lat=Inf, **kwargs):
+        return lateral_distance_reward(current_lat, next_lat)
 
 class DriftActor:
     def __init__(self, action_net):

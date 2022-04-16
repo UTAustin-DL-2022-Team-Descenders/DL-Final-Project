@@ -10,7 +10,7 @@ def collect_dist(trajectories):
     results = []
     for trajectory in trajectories:
         results.append(trajectory[-1]['kart_info'].overall_distance)
-    return np.array(results).mean()
+    return np.min(np.array(results)), np.max(np.array(results)), np.median(np.array(results))
 
 def reinforce(actor, 
               actors,  
@@ -70,23 +70,13 @@ def reinforce(actor,
                 points = three_points_on_track(kart_info.distance_down_track, track_info)
                 next_lat = cart_lateral_distance(kart_info, points)
 
-                reward = 0
+                reward = actor.reward(
+                                        current_lat=current_lat,
+                                        next_lat=next_lat
+                                     )
                 
-                loss.append(next_lat)
+                loss.append(current_lat)
 
-                # lateral distance reward
-                if np.abs(current_lat) > 1:
-                
-                    # if the lateral distance shrinking?
-                    if np.abs(next_lat) < np.abs(current_lat):
-                        # less strong reward
-                        reward = 1
-                    else:
-                        # no reward
-                        reward = -1
-                else:
-                    # strong reward
-                    reward = 2    
             
                 #lateral_distance = state20[0,2]
                 #print(state20, state)
@@ -136,10 +126,10 @@ def reinforce(actor,
         best_dist = collect_dist(best_performance)
         dist = collect_dist(current_performance)
 
-        print('epoch = %d loss %d, dist = %d, best_dist = %d '%(epoch, np.abs(np.mean(losses)), dist, best_dist))
+        print('epoch = %d loss %d, dist = %s, best_dist = %s '%(epoch, np.abs(np.median(losses)), dist, best_dist))
         
-        if best_dist < dist:
+        if best_dist[2] < dist[2]:
             best_action_net = copy.deepcopy(action_net)
             actor = new_actor
-
+        
     return best_action_net
