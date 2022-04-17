@@ -64,15 +64,22 @@ def reinforce(actor,
                 track_info = trajectory[i]['track_info'] 
                 points = three_points_on_track(kart_info.distance_down_track, track_info)
                 current_lat = cart_lateral_distance(kart_info, points)
+                current_distance = kart_info.overall_distance
                     
                 kart_info = trajectory[min(i+T, len(trajectory)-1)]['kart_info']
                 track_info = trajectory[min(i+T, len(trajectory)-1)]['track_info']
                 points = three_points_on_track(kart_info.distance_down_track, track_info)
                 next_lat = cart_lateral_distance(kart_info, points)
+                next_distance = kart_info.overall_distance
+
+                action = trajectory[i]['action']
 
                 reward = actor.reward(
+                                        action,
                                         current_lat=current_lat,
-                                        next_lat=next_lat
+                                        next_lat=next_lat,
+                                        current_distance=current_distance,
+                                        next_distance=next_distance
                                      )
                 
                 loss.append(current_lat)
@@ -84,7 +91,7 @@ def reinforce(actor,
                 #returns.append(overall_distance)
                 # Store the action that we took
                 actions.append( 
-                    actor.extract_greedy_action(trajectory[i]['action'])
+                    actor.extract_greedy_action(action)
                 )
 
             it += len(trajectory)

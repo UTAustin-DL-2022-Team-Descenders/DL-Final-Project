@@ -81,23 +81,29 @@ def show_video(data, fps=30):
         image_to_edit.text((10, 20), "direction: {}".format(direction))         
         image_to_edit.text((10, 30), "lateral: {}".format(lateral))         
         image_to_edit.text((10, 40), "steering: {}".format(action.steer))         
+        image_to_edit.text((10, 50), "drift: {}".format(action.drift))         
         images.append(np.array(img))
 
     imageio.mimwrite('/tmp/test.mp4', images, fps=fps, bitrate=1000000)
     display(Video('/tmp/test.mp4', width=800, height=600, embed=True))
 
-def show_steering_graph(data):
+def show_graph(data):
     import matplotlib.pyplot as plt
 
     steer = [t['action'].steer for t in data]
-    plt.plot(steer)
-    plt.show()
+    drift = [t['action'].drift for t in data]
+    fig, (steering_p, drift_p) = plt.subplots(1, 2)
+    steering_p.plot(steer)
+    steering_p.set_title("Steering")
+    drift_p.plot(drift)
+    drift_p.set_title("Drift")
+    fig.show()
 
 viz_rollout = Rollout.remote(400, 300)
 def run_agent(agent, n_steps=600, rollout=viz_rollout):
     data = ray.get(rollout.__call__.remote(agent, n_steps=n_steps))
     show_video(data)
-    show_steering_graph(data)
+    show_graph(data)
     return data
     
 rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5) for i in range(10)]

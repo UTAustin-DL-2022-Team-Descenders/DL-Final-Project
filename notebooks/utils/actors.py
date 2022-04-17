@@ -2,9 +2,10 @@ from ast import In
 from numpy import Inf
 import pystk
 import torch
+import numpy as np
 from torch.distributions import Bernoulli, Normal
 from utils.track import state_features
-from utils.rewards import lateral_distance_reward
+from utils.rewards import lateral_distance_reward, lateral_distance_causal_reward, distance_traveled_reward
 
 def new_action_net():
     return torch.nn.Sequential(
@@ -34,7 +35,7 @@ class SteeringActor(BaseActor):
             action.steer = output[0] * 2 - 1
         return action
 
-    def reward(self, current_lat=Inf, next_lat=Inf, **kwargs):
+    def reward(self, action, current_lat=Inf, next_lat=Inf, **kwargs):
         return lateral_distance_reward(current_lat, next_lat)
     
     def extract_greedy_action(self, action):
@@ -48,10 +49,15 @@ class DriftActor(BaseActor):
             train = self.train
         if train:
             drift_dist = Bernoulli(probs=output)
-            action.drift = drift_dist.sample()
+            action.drift = drift_dist.sample() > 0.5
         else:
-            action.drift = output[0]
+            # drift is a binary value
+            action.drift = output[0] > 0.5
+        
         return action
+
+    def reward(self, action, current_distance=Inf, next_distance=Inf, current_lat=Inf, next_lat=Inf, **kwargs): 
+        return lateral_distance_causal_reward(current_lat, next_lat)         
 
     def extract_greedy_action(self, action):
         return action.drift > 0.5
@@ -59,6 +65,7 @@ class DriftActor(BaseActor):
 class Actor:
     def __init__(self, *args):
         self.nets = args
+        self.last_output = torch.Tensor([0, 0, 0, 0, 0])
     
     def invoke_nets(self, action, f):
         for net in self.nets:
@@ -69,7 +76,7 @@ class Actor:
         action.acceleration = 1.0
         f = state_features(track_info, kart_info)
         f = torch.as_tensor(f).view(1,-1)
-        self.invoke_nets(action, f)
+        self.invoke_nets(action, f)        
         return action
 
 class GreedyActor(Actor):
