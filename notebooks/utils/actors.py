@@ -5,7 +5,7 @@ import torch
 import numpy as np
 from torch.distributions import Bernoulli, Normal
 from utils.track import state_features
-from utils.rewards import lateral_distance_reward, lateral_distance_causal_reward, distance_traveled_reward
+from utils.rewards import lateral_distance_reward, lateral_distance_causal_reward, distance_traveled_reward, steering_angle_reward
 
 def new_action_net():
     return torch.nn.Sequential(
@@ -18,9 +18,10 @@ def new_action_net():
 
 class BaseActor:
 
-    def __init__(self, action_net, train=None):
+    def __init__(self, action_net, train=None, reward_type="angle"):
         self.action_net = action_net.cpu().eval()
         self.train = train
+        self.reward_type = reward_type
     
 class SteeringActor(BaseActor):
     
@@ -35,8 +36,11 @@ class SteeringActor(BaseActor):
             action.steer = output[0] * 2 - 1
         return action
 
-    def reward(self, action, current_lat=Inf, next_lat=Inf, **kwargs):
-        return lateral_distance_reward(current_lat, next_lat)
+    def reward(self, action, current_angle=Inf, next_angle=Inf, current_lat=Inf, next_lat=Inf, **kwargs):
+        if self.reward_type == "angle":
+            return steering_angle_reward(current_angle, next_angle)
+        else:
+            return lateral_distance_reward(current_lat, next_lat)
     
     def extract_greedy_action(self, action):
         return action.steer > 0
@@ -56,8 +60,11 @@ class DriftActor(BaseActor):
         
         return action
 
-    def reward(self, action, current_distance=Inf, next_distance=Inf, current_lat=Inf, next_lat=Inf, **kwargs): 
-        return lateral_distance_causal_reward(current_lat, next_lat)         
+    def reward(self, action, current_angle=Inf, next_angle=Inf, current_lat=Inf, next_lat=Inf, **kwargs): 
+        if self.reward_type == "angle":
+            return steering_angle_reward(current_angle, next_angle)
+        else:
+            return lateral_distance_causal_reward(current_lat, next_lat)        
 
     def extract_greedy_action(self, action):
         return action.drift > 0.5

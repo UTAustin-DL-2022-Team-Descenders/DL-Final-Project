@@ -1,4 +1,4 @@
-from utils.track import state_features, three_points_on_track,cart_direction, cart_lateral_distance
+from utils.track import state_features, three_points_on_track,cart_direction, cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle
 import torch
 import sys, os
 import pystk
@@ -70,15 +70,16 @@ def show_video(data, fps=30):
     features = [state_features(**t) for t in data]
     directions = [cart_direction(t['kart_info']) for t in data]
     laterals = [cart_lateral_distance(t['kart_info'], three_points_on_track(t['kart_info'].distance_down_track, t['track_info'])) for t in data]
+    angles = [(cart_angle(t['kart_info']), get_obj1_to_obj2_angle(cart_location(t['kart_info']), three_points_on_track(t['kart_info'].distance_down_track, t['track_info'])[1])) for t in data]
     actions = [t['action'] for t in data]
 
     images = []
-    for frame, feature, distance, direction, lateral, action in zip(frames, features, distances, directions, laterals, actions):
+    for frame, feature, distance, direction, lateral, action, angle in zip(frames, features, distances, directions, laterals, actions, angles):
         img = Image.fromarray(frame)        
         image_to_edit = ImageDraw.Draw(img)
         
         image_to_edit.text((10, 10), "Distance: {}".format(distance))
-        image_to_edit.text((10, 20), "direction: {}".format(direction))         
+        image_to_edit.text((10, 20), "angle: {}, target angle: {}".format(angle[0], angle[1]))
         image_to_edit.text((10, 30), "lateral: {}".format(lateral))         
         image_to_edit.text((10, 40), "steering: {}".format(action.steer))         
         image_to_edit.text((10, 50), "drift: {}".format(action.drift))         

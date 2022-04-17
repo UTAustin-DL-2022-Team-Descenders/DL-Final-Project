@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from torch.distributions import Bernoulli, Normal
 from utils.utils import rollout_many, device
-from utils.track import state_features, three_points_on_track, cart_lateral_distance
+from utils.track import state_features, three_points_on_track, cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle
 from utils.actors import Agent, TrainingAgent, SteeringActor
 
 def collect_dist(trajectories):
@@ -65,12 +65,16 @@ def reinforce(actor,
                 points = three_points_on_track(kart_info.distance_down_track, track_info)
                 current_lat = cart_lateral_distance(kart_info, points)
                 current_distance = kart_info.overall_distance
+                # current angle is where the kart is facing
+                current_angle = cart_angle(kart_info)
                     
                 kart_info = trajectory[min(i+T, len(trajectory)-1)]['kart_info']
                 track_info = trajectory[min(i+T, len(trajectory)-1)]['track_info']
                 points = three_points_on_track(kart_info.distance_down_track, track_info)
                 next_lat = cart_lateral_distance(kart_info, points)
                 next_distance = kart_info.overall_distance
+                # next angle is where the kart should be facing down the track (midpoint)
+                next_angle = get_obj1_to_obj2_angle(cart_location(kart_info), points[1])
 
                 action = trajectory[i]['action']
 
@@ -79,7 +83,9 @@ def reinforce(actor,
                                         current_lat=current_lat,
                                         next_lat=next_lat,
                                         current_distance=current_distance,
-                                        next_distance=next_distance
+                                        next_distance=next_distance,
+                                        current_angle=current_angle,
+                                        next_angle=next_angle
                                      )
                 
                 loss.append(np.abs(current_lat))
