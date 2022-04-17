@@ -62,14 +62,14 @@ class DriftActor(BaseActor):
     def extract_greedy_action(self, action):
         return action.drift > 0.5
 
-class Actor:
+class Agent:
     def __init__(self, *args):
         self.nets = args
         self.last_output = torch.Tensor([0, 0, 0, 0, 0])
     
     def invoke_nets(self, action, f):
         for net in self.nets:
-            net(action, f, train=True)        
+            net(action, f, train=False)        
 
     def __call__(self, track_info, kart_info, **kwargs):
         action = pystk.Action()        
@@ -79,8 +79,8 @@ class Actor:
         self.invoke_nets(action, f)        
         return action
 
-class GreedyActor(Actor):
+class TrainingAgent(Agent):
     
     def invoke_nets(self, action, f):
         for net in self.nets:
-            net(action, f, train=False)
+            net(action, f, train=True)        

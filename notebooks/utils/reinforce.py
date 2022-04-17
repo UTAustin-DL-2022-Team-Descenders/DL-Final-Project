@@ -4,7 +4,7 @@ import numpy as np
 from torch.distributions import Bernoulli, Normal
 from utils.utils import rollout_many, device
 from utils.track import state_features, three_points_on_track, cart_lateral_distance
-from utils.actors import Actor, GreedyActor, SteeringActor
+from utils.actors import Agent, TrainingAgent, SteeringActor
 
 def collect_dist(trajectories):
     results = []
@@ -33,7 +33,7 @@ def reinforce(actor,
         
         # Roll out the policy, compute the Expectation
         assert(actor.action_net == action_net)
-        trajectories = rollout_many([Actor(*slice_net, actor)]*n_trajectories, n_steps=600)
+        trajectories = rollout_many([TrainingAgent(*slice_net, actor)]*n_trajectories, n_steps=600)
         
         # Compute all the reqired quantities to update the policy
         features = []
@@ -82,7 +82,7 @@ def reinforce(actor,
                                         next_distance=next_distance
                                      )
                 
-                loss.append(current_lat)
+                loss.append(np.abs(current_lat))
             
                 #lateral_distance = state20[0,2]
                 #print(state20, state)
@@ -127,8 +127,8 @@ def reinforce(actor,
         new_actor = actor.__class__(action_net)
         best_actor = actor.__class__(best_action_net)
         
-        best_performance = rollout_many([GreedyActor(*slice_net, best_actor)] * n_validations, n_steps=600)
-        current_performance = rollout_many([GreedyActor(*slice_net, new_actor)] * n_validations, n_steps=600)
+        best_performance = rollout_many([Agent(*slice_net, best_actor)] * n_validations, n_steps=600)
+        current_performance = rollout_many([Agent(*slice_net, new_actor)] * n_validations, n_steps=600)
         
         # compute mean performance
         best_dist = collect_dist(best_performance)
