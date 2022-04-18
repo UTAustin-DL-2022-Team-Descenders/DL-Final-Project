@@ -1,10 +1,14 @@
-from utils.track import state_features, three_points_on_track,cart_direction, cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle
+from utils.track import state_features, three_points_on_track,cart_direction, \
+    cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle, \
+    cart_overall_distance
 import torch
 import sys, os
 import pystk
 import ray
 import numpy as np
+import matplotlib.pyplot as plt
 from PIL import Image, ImageFont, ImageDraw
+from notebooks.code.state_agent.utils import map_image
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 font = ImageFont.load_default()
@@ -89,7 +93,6 @@ def show_video(data, fps=30):
     display(Video('/tmp/test.mp4', width=800, height=600, embed=True))
 
 def show_graph(data):
-    import matplotlib.pyplot as plt
 
     steer = [t['action'].steer for t in data]
     drift = [t['action'].drift for t in data]
@@ -99,6 +102,13 @@ def show_graph(data):
     drift_p.plot(drift)
     drift_p.set_title("Drift")
     fig.show()
+
+def show_trajectory_histogram(trajectories, metric=cart_overall_distance, min=0, max=1000, bins=10):
+    # histogram of trajectory overall scoring distribution
+    scores = [metric(t[-1]["kart_info"]) for t in trajectories]
+    scores = np.clip(scores, min, max)
+    plt.hist(scores, range(min, max, (max - min) // bins), density=True)
+    plt.show()
 
 viz_rollout = Rollout.remote(400, 300)
 def run_agent(agent, n_steps=600, rollout=viz_rollout):

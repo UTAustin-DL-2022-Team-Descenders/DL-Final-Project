@@ -65,6 +65,8 @@ def cart_lateral_distances(kart_info, points):
 def cart_lateral_distance(kart_info, points):
     return cart_lateral_distances(kart_info, np.expand_dims(points, 0))[0]
     
+def cart_overall_distance(kart_info, **kwargs):
+    return kart_info.overall_distance
 
 def state_features(track_info, kart_info, absolute=False, **kwargs):
     

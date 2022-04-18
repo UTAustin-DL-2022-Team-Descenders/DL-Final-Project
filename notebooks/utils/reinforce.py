@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from torch.distributions import Bernoulli, Normal
 from utils.utils import rollout_many, device
+from utils.rewards import ObjectiveEvaluator, OverallDistanceObjective
 from utils.track import state_features, three_points_on_track, cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle
 from utils.actors import Agent, TrainingAgent, SteeringActor
 
@@ -12,8 +13,11 @@ def collect_dist(trajectories):
         results.append(trajectory[-1]['kart_info'].overall_distance)
     return np.min(np.array(results)), np.max(np.array(results)), np.median(np.array(results))
 
+overall_distance_objective = OverallDistanceObjective()
+
 def reinforce(actor, 
               actors,  
+              evaluator: ObjectiveEvaluator = overall_distance_objective,
              n_epochs = 10,
             n_trajectories = 100,
             n_iterations =100,
@@ -137,12 +141,12 @@ def reinforce(actor,
         current_performance = rollout_many([Agent(*slice_net, new_actor)] * n_validations, n_steps=600)
         
         # compute mean performance
-        best_dist = collect_dist(best_performance)
-        dist = collect_dist(current_performance)
+        best_dist = evaluator.reduce(best_performance)
+        dist = evaluator.reduce(current_performance)
 
         print('epoch = %d loss %d, dist = %s, best_dist = %s '%(epoch, np.abs(np.median(losses)), dist, best_dist))
         
-        if best_dist[2] < dist[2]:
+        if evaluator.is_better_than(dist, best_dist):
             best_action_net = copy.deepcopy(action_net)
             actor = new_actor
         

@@ -57,3 +57,22 @@ def steering_angle_reward(current_angle, next_angle):
         # strong reward
         reward = 2    
     return reward
+
+class ObjectiveEvaluator:
+
+    def reduce(self, trajectories):
+        pass
+
+    def is_better_than(self, a, b):
+        return a > b
+
+class OverallDistanceObjective(ObjectiveEvaluator):
+
+    def reduce(self, trajectories):
+        results = []
+        for trajectory in trajectories:
+            results.append(trajectory[-1]['kart_info'].overall_distance)
+        return np.min(np.array(results)), np.max(np.array(results)), np.median(np.array(results))
+
+    def is_better_than(self, a, b):
+        return super().is_better_than(a[2], b[2])
