@@ -26,6 +26,12 @@ def get_obj1_to_obj2_direction(object1_center, object2_center):
     norm = np.linalg.norm(object2_center-object1_center)
     return (object2_center-object1_center) / (norm + 0.00001)
 
+def get_object_center(state_dict):
+  return np.array(state_dict.location, dtype=np.float32)[[0, 2]]
+
+def get_puck_center(puck_state):
+  return get_object_center(puck_state.ball)
+
 # limit angle between -1 to 1
 def limit_period(angle):
   return angle - np.floor(angle / 2 + 0.5) * 2 
@@ -106,3 +112,23 @@ def state_features(track_info, kart_info, absolute=False, **kwargs):
     #print(laterals)
 
     return np.stack([f.dot(d), f.dot(d_o), merged], axis=1)
+
+def state_features_soccer(track_info, kart_info, soccer_state, absolute=False, **kwargs):
+
+    # cart location
+    p = cart_location(kart_info)
+
+    # cart front
+    front = cart_front(kart_info)
+
+    # puck
+    puck = get_puck_center(soccer_state)
+    
+    # steering angles to points down the track
+    steer_angle = get_obj1_to_obj2_angle(p, front)
+    steer_angle_puck = get_obj1_to_obj2_angle(p, puck)
+    
+    features = np.zeros(45).astype(np.float32)
+    features[35] = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
+
+    return features

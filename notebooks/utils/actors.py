@@ -4,7 +4,7 @@ import pystk
 import torch
 import numpy as np
 from torch.distributions import Bernoulli, Normal
-from utils.track import state_features
+from utils.track import state_features, state_features_soccer
 from utils.rewards import lateral_distance_reward, lateral_distance_causal_reward, distance_traveled_reward, steering_angle_reward
 
 def new_action_net():
@@ -70,18 +70,21 @@ class DriftActor(BaseActor):
         return action.drift > 0.5
 
 class Agent:
-    def __init__(self, *args):
+    def __init__(self, *args, **kwargs):
         self.nets = args
-        self.last_output = torch.Tensor([0, 0, 0, 0, 0])
+        self.last_output = torch.Tensor([0, 0, 0, 0, 0])        
     
     def invoke_nets(self, action, f):
         for net in self.nets:
             net(action, f, train=False)        
 
-    def __call__(self, track_info, kart_info, **kwargs):
+    def __call__(self, track_info, kart_info, soccer_state, **kwargs):
         action = pystk.Action()        
         action.acceleration = 1.0
-        f = state_features(track_info, kart_info)
+        if track_info:
+            f = state_features(track_info, kart_info)
+        else:
+            f = state_features_soccer(track_info, kart_info, soccer_state)
         f = torch.as_tensor(f).view(1,-1)
         self.invoke_nets(action, f)        
         return action

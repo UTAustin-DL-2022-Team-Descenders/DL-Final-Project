@@ -4,7 +4,7 @@ import numpy as np
 from torch.distributions import Bernoulli, Normal
 from utils.utils import rollout_many, device
 from utils.rewards import ObjectiveEvaluator, OverallDistanceObjective
-from utils.track import state_features, three_points_on_track, cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle
+from utils.track import state_features, three_points_on_track, cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle, get_puck_center
 from utils.actors import Agent, TrainingAgent, SteeringActor
 
 def collect_dist(trajectories):
@@ -18,6 +18,7 @@ overall_distance_objective = OverallDistanceObjective()
 def reinforce(actor, 
               actors,  
               evaluator: ObjectiveEvaluator = overall_distance_objective,
+              extractor = state_features,
              n_epochs = 10,
             n_trajectories = 100,
             n_iterations =100,
@@ -49,7 +50,7 @@ def reinforce(actor,
         for trajectory in trajectories:
             for i in range(len(trajectory)):
                 # Compute the features                
-                state = state_features(**trajectory[i])
+                state = extractor(**trajectory[i])
                 features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
 
         it = 0
@@ -66,19 +67,27 @@ def reinforce(actor,
                 # if the kart is off center too much 
                 kart_info = trajectory[i]['kart_info']
                 track_info = trajectory[i]['track_info'] 
-                points = three_points_on_track(kart_info.distance_down_track, track_info)
-                current_lat = cart_lateral_distance(kart_info, points)
-                current_distance = kart_info.overall_distance
+
+                current_lat = next_lat = None
+                current_distance = next_distance = None
+                if track_info:
+                    points = three_points_on_track(kart_info.distance_down_track, track_info)
+                    current_lat = cart_lateral_distance(kart_info, points)
+                    current_distance = kart_info.overall_distance
                 # current angle is where the kart is facing
                 current_angle = cart_angle(kart_info)
                     
                 kart_info = trajectory[min(i+T, len(trajectory)-1)]['kart_info']
                 track_info = trajectory[min(i+T, len(trajectory)-1)]['track_info']
-                points = three_points_on_track(kart_info.distance_down_track, track_info)
-                next_lat = cart_lateral_distance(kart_info, points)
-                next_distance = kart_info.overall_distance
-                # next angle is where the kart should be facing down the track (midpoint)
-                next_angle = get_obj1_to_obj2_angle(cart_location(kart_info), points[1])
+                if track_info:
+                    points = three_points_on_track(kart_info.distance_down_track, track_info)
+                    next_lat = cart_lateral_distance(kart_info, points)
+                    next_distance = kart_info.overall_distance
+                    # next angle is where the kart should be facing down the track (midpoint)
+                    next_angle = get_obj1_to_obj2_angle(cart_location(kart_info), points[1])
+                else:
+                    soccer_state = trajectory[min(i+T, len(trajectory)-1)]['soccer_state']
+                    next_angle = get_obj1_to_obj2_angle(cart_location(kart_info), get_puck_center(soccer_state))
 
                 action = trajectory[i]['action']
 
@@ -94,11 +103,8 @@ def reinforce(actor,
                 
                 loss.append(np.abs(current_lat))
             
-                #lateral_distance = state20[0,2]
-                #print(state20, state)
-                #print(lateral_distance)
                 returns.append(reward) 
-                #returns.append(overall_distance)
+                
                 # Store the action that we took
                 actions.append( 
                     actor.extract_greedy_action(action)

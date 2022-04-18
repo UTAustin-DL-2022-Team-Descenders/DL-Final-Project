@@ -9,13 +9,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image, ImageFont, ImageDraw
 from lib.state_agent.utils import map_image
+from lib.state_agent.runner import to_native
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 font = ImageFont.load_default()
+    
 
+# tried to break this into multiple classes, but Ray doesn't seem to work when there's a subclass used
 @ray.remote
 class Rollout:
-    def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1):
+    def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1, 
+                 mode="track",
+                 ball_location=None, ball_velocity=None):
         # Init supertuxkart
         if not render:
             config = pystk.GraphicsConfig.none()
@@ -29,28 +34,71 @@ class Rollout:
         
         self.frame_skip = frame_skip
         self.render = render
-        race_config = pystk.RaceConfig(track=track)
-        self.race = pystk.Race(race_config)
-        self.race.start()
+        self.track_info = None  
+        self.mode = mode   
+        self.ball_location=ball_location
+        self.ball_velocity=ball_velocity   
+
+        self.create_race(track)
     
+    def create_race(self, track):
+        race_config = None
+        if self.mode == "track":
+            race_config = pystk.RaceConfig(track=track)
+        elif self.mode == "soccer":
+            race_config = pystk.RaceConfig(track="icy_soccer_field", mode=pystk.RaceConfig.RaceMode.SOCCER)
+            race_config.players.pop()
+            race_config.players.append(self._make_config(0, False, "tux"))
+        self.race = pystk.Race(race_config)
+        self.race.start()  
+
+    def initialize_state(self, world_info):
+        if self.mode == "track":
+            self.track_info = track_info = pystk.Track()
+            track_info.update()
+        elif self.mode == "soccer":
+            ball_location = self.ball_location if self.ball_location else [0, 0]
+            ball_velocity = self.ball_velocity if self.ball_velocity else [0, 0]
+            world_info.set_ball_location((ball_location[0], 1, ball_location[1]),
+                                        (ball_velocity[0], 0, ball_velocity[1]))
+
+    def agent_data(self, world_info):
+        # Gather world information
+        kart_info = world_info.players[0].kart
+
+        agent_data = {}    
+        if self.mode == "track":
+            agent_data = {'track_info': self.track_info, 'kart_info': kart_info}
+        elif self.mode == "soccer":
+            agent_data = {'track_info': None, 'soccer_state': world_info.soccer, 'kart_info': kart_info}
+
+        if self.render:
+            agent_data['image'] = np.array(self.race.render_data[0].image)
+            if self.mode == "soccer":
+                agent_data['map'] = map_image([[to_native(world_info.players[0])]], to_native(world_info.soccer))
+
+        return agent_data
+
+    def _make_config(self, team_id, is_ai, kart):
+        PlayerConfig = pystk.PlayerConfig
+        controller = PlayerConfig.Controller.AI_CONTROL if is_ai else PlayerConfig.Controller.PLAYER_CONTROL
+        return PlayerConfig(controller=controller, team=team_id, kart=kart)
+
     def __call__(self, agent, n_steps=200):
         torch.set_num_threads(1)
         self.race.restart()
         self.race.step()
         data = []
-        track_info = pystk.Track()
-        track_info.update()
 
-        for i in range(n_steps // self.frame_skip):
-            world_info = pystk.WorldState()
+        world_info = pystk.WorldState()    
+        self.initialize_state(world_info)
+        world_info.update()
+    
+        for i in range(n_steps // self.frame_skip):            
+            world_info = pystk.WorldState()        
             world_info.update()
 
-            # Gather world information
-            kart_info = world_info.players[0].kart
-
-            agent_data = {'track_info': track_info, 'kart_info': kart_info}
-            if self.render:
-                agent_data['image'] = np.array(self.race.render_data[0].image)
+            agent_data = self.agent_data(world_info)
 
             # Act
             action = agent(**agent_data)
@@ -92,6 +140,37 @@ def show_video(data, fps=30):
     imageio.mimwrite('/tmp/test.mp4', images, fps=fps, bitrate=1000000)
     display(Video('/tmp/test.mp4', width=800, height=600, embed=True))
 
+def show_video_soccer(data, fps=30):
+    import imageio
+    from IPython.display import Video, display 
+    
+    frames = [d['image'] for d in data]    
+    frames_map = [d['map'] for d in data]    
+    actions = [t['action'] for t in data]
+
+    images = []
+    map_images = []
+    for frame, action in zip(frames, actions):
+        img = Image.fromarray(frame)        
+        image_to_edit = ImageDraw.Draw(img)        
+        image_to_edit.text((10, 10), "steering: {}".format(action.steer))         
+        image_to_edit.text((10, 20), "drift: {}".format(action.drift))         
+        images.append(np.array(img))
+
+    for img, action in zip(frames_map, actions):
+        image_to_edit = ImageDraw.Draw(img)        
+        image_to_edit.text((10, 10), "steering: {}".format(action.steer), fill=(0, 0, 0))         
+        image_to_edit.text((10, 20), "drift: {}".format(action.drift), fill=(0, 0, 0))         
+        map_images.append(np.array(img))
+
+    # create map video
+
+    imageio.mimwrite('/tmp/test.mp4', images, fps=fps, bitrate=1000000)
+    imageio.mimwrite('/tmp/test2.mp4', map_images, fps=fps, bitrate=1000000)
+    display(Video('/tmp/test.mp4', width=800, height=600, embed=True))
+    display(Video('/tmp/test2.mp4', width=800, height=600, embed=True))
+
+
 def show_graph(data):
 
     steer = [t['action'].steer for t in data]
@@ -116,7 +195,15 @@ def run_agent(agent, n_steps=600, rollout=viz_rollout):
     show_video(data)
     show_graph(data)
     return data
-    
+
+viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
+def run_soccer_agent(agent, n_steps=600, rollout=viz_rollout_soccer):
+    data = ray.get(rollout.__call__.remote(agent, n_steps=n_steps))
+    show_video_soccer(data)
+    show_graph(data)
+    return data
+
+
 rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5) for i in range(10)]
 def rollout_many(many_agents, **kwargs):
     ray_data = []
