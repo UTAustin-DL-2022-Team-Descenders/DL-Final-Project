@@ -8,7 +8,7 @@ import ray
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image, ImageFont, ImageDraw
-from notebooks.code.state_agent.utils import map_image
+from lib.state_agent.utils import map_image
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 font = ImageFont.load_default()
