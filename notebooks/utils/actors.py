@@ -22,6 +22,9 @@ class BaseActor:
         self.action_net = action_net.cpu().eval()
         self.train = train
         self.reward_type = reward_type
+
+    def copy(self, action_net):
+        return self.__class__(action_net, train=self.train, reward_type=self.reward_type)
     
 class SteeringActor(BaseActor):
     
@@ -72,6 +75,7 @@ class DriftActor(BaseActor):
 class Agent:
     def __init__(self, *args, **kwargs):
         self.nets = args
+        self.accel = kwargs['accel'] if 'accel' in kwargs else 1.0
         self.last_output = torch.Tensor([0, 0, 0, 0, 0])        
     
     def invoke_nets(self, action, f):
@@ -80,7 +84,7 @@ class Agent:
 
     def __call__(self, track_info, kart_info, soccer_state=None, **kwargs):
         action = pystk.Action()        
-        action.acceleration = 1.0
+        action.acceleration = self.accel
         if track_info:
             f = state_features(track_info, kart_info)
         else:

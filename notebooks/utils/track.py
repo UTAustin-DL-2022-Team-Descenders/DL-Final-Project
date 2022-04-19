@@ -107,8 +107,6 @@ def state_features(track_info, kart_info, absolute=False, **kwargs):
 
     merged = np.concatenate([cart_lateral_distances(kart_info, np.array(points)), np.array(steering_angles), np.zeros(5)]).astype(np.float32)
    
-    
-
     #print(laterals)
 
     return np.stack([f.dot(d), f.dot(d_o), merged], axis=1)
@@ -129,6 +127,8 @@ def state_features_soccer(track_info, kart_info, soccer_state, absolute=False, *
     steer_angle_puck = get_obj1_to_obj2_angle(p, puck)
     
     features = np.zeros(45).astype(np.float32)
+
+    features[0:2] = p - puck
     features[35] = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
 
     return features

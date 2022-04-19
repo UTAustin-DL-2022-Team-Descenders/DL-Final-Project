@@ -13,7 +13,7 @@ def lateral_distance_reward(current_lat, next_lat):
             reward = 1
         else:
             # no reward
-            reward = 0
+            reward = -1
     else:
         # strong reward
         reward = 2    
@@ -30,7 +30,7 @@ def lateral_distance_causal_reward(current_lat, next_lat):
             reward = 1
         else:
             # no reward
-            reward = 0
+            reward = -1
     else:
         # strong reward
         reward = 2    
@@ -52,7 +52,7 @@ def steering_angle_reward(current_angle, next_angle):
             reward = 1
         else:
             # no reward
-            reward = 0
+            reward = -1
     else:
         # strong reward
         reward = 2    

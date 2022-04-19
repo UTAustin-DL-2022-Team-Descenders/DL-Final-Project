@@ -38,6 +38,10 @@ def reinforce(actor,
         
         # Roll out the policy, compute the Expectation
         assert(actor.action_net == action_net)
+        best_actor = actor.copy(best_action_net)
+        assert(best_actor.train == actor.train)
+        assert(best_actor.reward_type == actor.reward_type)
+
         trajectories = rollout_many([TrainingAgent(*slice_net, actor)]*n_trajectories, n_steps=600)
         
         # Compute all the reqired quantities to update the policy
@@ -120,7 +124,8 @@ def reinforce(actor,
 
         print(returns)
         
-        returns = (returns - returns.mean()) / returns.std()
+        # enable this if not using discrete rewards! 
+        #returns = (returns - returns.mean()) / returns.std()
         
         action_net.train()
         avg_expected_log_return = []
@@ -140,9 +145,8 @@ def reinforce(actor,
             avg_expected_log_return.append(float(expected_log_return))           
             
 
-        new_actor = actor.__class__(action_net)
-        best_actor = actor.__class__(best_action_net)
-        
+        action_net.eval()
+            
         best_performance = rollout_many([Agent(*slice_net, best_actor)] * n_validations, n_steps=600)
         current_performance = rollout_many([Agent(*slice_net, new_actor)] * n_validations, n_steps=600)
         
@@ -153,7 +157,5 @@ def reinforce(actor,
         print('epoch = %d loss %d, dist = %s, best_dist = %s '%(epoch, np.abs(np.median(losses)), dist, best_dist))
         
         if evaluator.is_better_than(dist, best_dist):
-            best_action_net = copy.deepcopy(action_net)
-            actor = new_actor
-        
+            best_actor.action_net = best_action_net = copy.deepcopy(action_net)             
     return best_action_net
