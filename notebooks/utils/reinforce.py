@@ -28,6 +28,7 @@ def reinforce(actor,
 
     action_net = actor.action_net
     best_action_net = copy.deepcopy(action_net)
+    best_actor = actor.copy(best_action_net)
 
     optim = torch.optim.Adam(action_net.parameters(), lr=1e-3)
 
@@ -37,8 +38,7 @@ def reinforce(actor,
         eps = 1e-2  
         
         # Roll out the policy, compute the Expectation
-        assert(actor.action_net == action_net)
-        best_actor = actor.copy(best_action_net)
+        assert(actor.action_net == action_net)        
         assert(best_actor.train == actor.train)
         assert(best_actor.reward_type == actor.reward_type)
 
@@ -148,7 +148,7 @@ def reinforce(actor,
         action_net.eval()
             
         best_performance = rollout_many([Agent(*slice_net, best_actor)] * n_validations, n_steps=600)
-        current_performance = rollout_many([Agent(*slice_net, new_actor)] * n_validations, n_steps=600)
+        current_performance = rollout_many([Agent(*slice_net, actor)] * n_validations, n_steps=600)
         
         # compute mean performance
         best_dist = evaluator.reduce(best_performance)
