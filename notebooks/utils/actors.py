@@ -10,9 +10,9 @@ from utils.rewards import lateral_distance_reward, lateral_distance_causal_rewar
 def new_action_net():
     return torch.nn.Sequential(
         #torch.nn.BatchNorm1d(3*5*3),
-        torch.nn.Linear(3*5*3, 20, bias=True),
+        torch.nn.Linear(3*5*3, 20, bias=False),
         torch.nn.ReLU(),
-        torch.nn.Linear(20, 1, bias=True),
+        torch.nn.Linear(20, 1, bias=False),
         torch.nn.Sigmoid()
     )
 
@@ -78,7 +78,7 @@ class Agent:
         for net in self.nets:
             net(action, f, train=False)        
 
-    def __call__(self, track_info, kart_info, soccer_state, **kwargs):
+    def __call__(self, track_info, kart_info, soccer_state=None, **kwargs):
         action = pystk.Action()        
         action.acceleration = 1.0
         if track_info:
