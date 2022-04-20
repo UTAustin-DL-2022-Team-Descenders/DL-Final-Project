@@ -21,6 +21,137 @@ class Team(IntEnum):
     BLUE = 1
 
 
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-dp', '--datapath', default=TRAINING_PATH, help="Datapath directory for generated data")
+    parser.add_argument('-nt', '--n_trajectories', type=int, default=1, help="Number of trajectories to rollout")
+    parser.add_argument('--record_video', action='store_true', help="Record a .mp4 video for every game")
+    parser.add_argument('--clean', action='store_true', help="Clean datapath directory")
+    parser.add_argument('--team1', type=str, default="random", choices=["random"]+TRAINING_OPPONENT_LIST, help="Team1 agent. Defaults to random agent")
+    parser.add_argument('--team2', type=str, default="random", choices=["random"]+TRAINING_OPPONENT_LIST, help="Team2 agent. Defaults to random agent")
+    # TODO: Any more knobs to add?
+
+    args = parser.parse_args()
+
+    generate_imitation_data(args)
+
+
+def generate_imitation_data(args):
+
+    if args.clean:
+        clean_pkl_files(args.datapath)
+
+    for i in range(args.n_trajectories):
+        rollout(team1=args.team1, team2=args.team2, output_dir=args.datapath, 
+                record_state=True, record_video=args.record_video, iteration=i)
+
+# Clean out all pkl files from a directory
+def clean_pkl_files(dir):
+    if os.path.exists(dir):
+        pkl_file_list = get_pickle_files(dir)
+        for pkl_file in pkl_file_list:
+            os.remove(pkl_file)
+
+
+# get list of pickle files from a dataset_path
+def get_pickle_files(dataset_path=os.path.abspath(os.path.dirname(__file__))):
+    return glob(os.path.join(dataset_path, '*.pkl'))
+
+
+# Rollout just a single game by calling tournament runner using subprocess
+def rollout(team1="random", team2="random", output_dir=TRAINING_PATH, record_state=True, record_video=False, iteration=0):
+
+    # Make output_dir if it doesn't exist
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # Base run command
+    run_cmd = ["python", "-m", "tournament.runner"]
+
+    # Set team1 if random
+    if team1 == "random":
+        team1 = get_random_opponent()
+
+    # Set team2 if random
+    if team2 == "random":
+        team2 = get_random_opponent()
+
+    # Add teams to run command
+    run_cmd += [team1, team2]
+
+    # Construct the name of this rollout
+    rollout_name = "%0d_%s_v_%s" % (iteration, team1, team2)
+
+    # Add saving state pkl file if record_state is True
+    if record_state:
+        state_output = os.path.join(output_dir, "%s.pkl" % rollout_name)
+        run_cmd += ["-s", state_output]
+
+    # Add saving .mp4 video file if record_video is True
+    if record_video:
+        video_output = os.path.join(output_dir, "%s.mp4" % rollout_name)
+        run_cmd += ["-r", video_output]
+    
+    output = subprocess.check_output(run_cmd)
+
+
+def get_random_opponent():
+    return random.choice(TRAINING_OPPONENT_LIST)
+
+
+# Load state recordings
+def load_recording(recording):
+    from pickle import load
+    with open(recording, 'rb') as f:
+        while True:
+            try:
+                yield load(f)
+            except EOFError:
+                break
+
+
+def clean_pkl_files_and_rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
+    clean_pkl_files(output_dir)
+    rollout_many(num_rollouts, training_opponent, agent_team_num, output_dir)
+
+
+# Rollout a number of games calling tournament runner -j (i.e. --parallel) using subprocess
+def rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
+
+    # Make output_dir if it doesn't exist
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    output_dir = os.path.join(output_dir, "reinforce_data.pkl")
+
+    # Base run command
+    run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir, "-j", str(num_rollouts)]
+
+    # Set training opponent
+    if training_opponent == "random":
+        training_opponent = get_random_opponent()
+
+    # Rollout with state_agent on appropriate team
+    if agent_team_num == 1:
+        run_cmd += ["state_agent", training_opponent]
+    else:
+        run_cmd += [training_opponent, "state_agent"]
+    
+    # Invoke the run command
+    output = subprocess.check_output(run_cmd)
+
+
+# Returns accuracy between prediction and labels within pct_close
+def accuracy(prediction, labels, pct_close):
+  n_items = len(labels)
+  n_correct = torch.sum((torch.abs(prediction - labels) < pct_close ))
+  acc = (n_correct.item() / n_items)  # scalar
+  return acc
+
+
 def video_grid(team_images, team_state=''):
     from PIL import Image, ImageDraw
     grid = np.array(team_images)
@@ -154,118 +285,6 @@ class StateRecorder(BaseRecorder):
             self._f.close()
 
 
-# get list of pickle files from a dataset_path
-def get_pickle_files(dataset_path=os.path.abspath(os.path.dirname(__file__))):
-    return glob(os.path.join(dataset_path, '*.pkl'))
-
-
-# Load state recordings
-def load_recording(recording):
-    from pickle import load
-    with open(recording, 'rb') as f:
-        while True:
-            try:
-                yield load(f)
-            except EOFError:
-                break
-
-def clean_pkl_files_and_rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
-    clean_pkl_files(output_dir)
-    rollout_many(num_rollouts, training_opponent, agent_team_num, output_dir)
-
-
-def clean_pkl_files(output_dir):
-    if os.path.exists(os.path.dirname(output_dir)):
-        pkl_file_list = get_pickle_files(output_dir)
-        for pkl_file in pkl_file_list:
-            os.remove(pkl_file)
-
-
-# Rollout a number of games calling tournament runner -j (i.e. --parallel) using subprocess
-def rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
-
-    if not os.path.exists(os.path.dirname(output_dir)):
-        os.makedirs(output_dir)
-
-    output_dir = os.path.join(output_dir, "reinforce_data.pkl")
-
-    run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir, "-j", str(num_rollouts)]
-
-    # Set training opponent
-    if training_opponent == "random":
-        training_opponent = get_random_opponent()
-
-    # Rollout with state_agent on appropriate Team
-    if agent_team_num == 1:
-        run_cmd += ["state_agent", training_opponent]
-    else:
-        run_cmd += [training_opponent, "state_agent"]
-    
-    output = subprocess.check_output(run_cmd)
-
-
-# Rollout just a single game by calling tournament runner using subprocess
-def rollout(team1="random", team2="random", output_dir=TRAINING_PATH, record_state=True, record_video=False, iteration=0):
-
-    if not os.path.exists(os.path.dirname(output_dir)):
-        os.mkdir(output_dir)
-    
-    run_cmd = ["python", "-m", "tournament.runner"]
-
-    if team1 == "random":
-        team1 = get_random_opponent()
-
-    if team2 == "random":
-        team2 = get_random_opponent()
-
-    rollout_name = "%0d_%s_v_%s" % (iteration, team1, team2)
-
-    if record_state:
-        state_output = os.path.join(output_dir, "%s.pkl" % rollout_name)
-        run_cmd += ["-s", state_output]
-
-    if record_video:
-        video_output = os.path.join(output_dir, "%s.mp4" % rollout_name)
-        run_cmd += ["-r", video_output]
-
-    run_cmd += [team1, team2]
-    
-    output = subprocess.check_output(run_cmd)
-
-
-def get_random_opponent():
-    return random.choice(TRAINING_OPPONENT_LIST)
-
-# Returns accuracy between prediction and labels within pct_close
-def accuracy(prediction, labels, pct_close):
-  n_items = len(labels)
-  n_correct = torch.sum((torch.abs(prediction - labels) < pct_close ))
-  acc = (n_correct.item() / n_items)  # scalar
-  return acc
-
-def generate_imitation_data(args):
-
-    if args.clean:
-        clean_pkl_files(args.datapath)
-
-    for i in range(args.n_trajectories):
-        rollout(args.team1, args.team2, args.datapath, args.record_video, i)
-
-
 if __name__ == "__main__":
+    main()
 
-    import argparse
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('-dp', '--datapath', default=TRAINING_PATH, help="Datapath directory for generated data")
-    parser.add_argument('-nt', '--n_trajectories', type=int, default=1, help="Number of trajectories to rollout per epoch. Be careful going too high on this to avoid running out of memory!")
-    parser.add_argument('--record_video', action='store_true', help="Record a .mp4 video for every game")
-    parser.add_argument('--clean', action='store_true', help="Clean datapath directory")
-    parser.add_argument('--team1', type=str, default="random", choices=["random"]+TRAINING_OPPONENT_LIST, help="Team1 agent. Defaults to random agent")
-    parser.add_argument('--team2', type=str, default="random", choices=["random"]+TRAINING_OPPONENT_LIST, help="Team2 agent. Defaults to random agent")
-    # TODO: Any more knobs to add?
-
-    args = parser.parse_args()
-
-    generate_imitation_data(args)

@@ -293,21 +293,28 @@ def get_obj1_to_obj2_angle_difference(object1_angle, object2_angle):
 def get_goal_by_team_id(team_id):
   return (team_id+1) % 2
 
+# Assumes network outputs 6 different actions
+# Output channel order: [acceleration, steer, brake, drift, fire, nitro]
+# REVIST: Using simple thresholding for boolean actions for now
+def get_action_dictionary_from_network_output(network_output):
+    return dict(acceleration=network_output[0],
+                steer=network_output[1],
+                brake=network_output[2] > 0.5,
+                drift=network_output[3] > 0.5,
+                fire=network_output[4]  > 0.5,
+                nitro=network_output[5] > 0.5
+                )
 
 
 # TODO: Make this reward function more robust
 def get_reward(player_state, team_state, opponent_states, puck_state, team_id):
-  DEBUG_EN = True
+  DEBUG_EN = False
   reward = 0
 
   player_goal_line = get_team_goal_line(puck_state, get_goal_by_team_id(team_id))
   opponent_goal_line = get_team_goal_line(puck_state, get_goal_by_team_id(team_id+1))
   puck_center = get_puck_center(puck_state)
   kart_center = get_kart_center(player_state)
-
-  #if DEBUG_EN:
-  #  print("get_reward - puck_center ", puck_center, " opponent goal line ", opponent_goal_line)
-  #  print("get_reward - puck_center ", puck_center, " player goal line ", player_goal_line)
 
   if is_touching(kart_center, puck_center):
     reward += 10
@@ -329,6 +336,7 @@ def is_touching(object1_center, object2_center, threshold=OBJS_TOUCHING_DISTANCE
   return get_obj1_to_obj2_distance(object1_center, object2_center) < threshold
 
 def is_puck_in_goal(puck_center, goal_line):
+  
   # The puck is in goal if the puck_center is in between the two sides of the goal
   # and past the Y axis of the goal line minus a small buffer
   
@@ -341,18 +349,6 @@ def is_puck_in_goal(puck_center, goal_line):
 def get_obj1_to_obj2_distance(object1_center, object2_center):
   return F.pairwise_distance(object1_center, object2_center)
 
-
-# Assumes network outputs 6 different actions
-# Output channel order: [acceleration, steer, brake, drift, fire, nitro]
-# REVIST: Using simple thresholding for boolean actions for now
-def get_action_dictionary_from_network_output(network_output):
-    return dict(acceleration=network_output[0],
-                steer=network_output[1],
-                brake=network_output[2] > 0.5,
-                drift=network_output[3] > 0.5,
-                fire=network_output[4]  > 0.5,
-                nitro=network_output[5] > 0.5
-                )
 
 # Get the score of a team using team_id
 def get_score(puck_state, team_id):

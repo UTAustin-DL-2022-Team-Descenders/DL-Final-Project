@@ -10,7 +10,26 @@ LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'logdir')
 TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'reinforce_data')
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-# Training Knobs
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--logdir', default=LOGDIR_PATH, help="Log Directory for tensorboard logs. *Currently not being used*")
+    parser.add_argument('-lr', '--learning_rate', type=float, default=0.001, help="Learning rate of the model")
+    parser.add_argument('-g', '--gamma', type=float, default=0.9, help="Discount Rate for Reinforcement learning")
+    parser.add_argument('-opt', '--optimizer', type=str, default="ADAM", choices=["ADAM", "SGD"], help="Name of Optimizer to use for training. Supported options: 'ADAM', 'SGD'")
+    parser.add_argument('-ep', '--epochs', type=int, default=1, help="Number of epochs to train model over")
+    parser.add_argument('-nt', '--n_trajectories', type=int, default=1, help="Number of trajectories to rollout per epoch. Be careful going too high on this to avoid running out of memory!")
+    parser.add_argument('-ld', '--load_model', action='store_true', help="Load an existing state_agent model to continue training. Using state_agent/state_agent.pt")
+    parser.add_argument('--training_opponent', type=str, default="random", choices=["random", "state_agent"]+TRAINING_OPPONENT_LIST, help="Training opponent for state_agent per epoch. Defaults to random opponent")
+    parser.add_argument('--agent_team', type=int, default=0, choices=[0,1,2], help="Team number for State agent per epoch. Defaults to 0 that will randomize team number per epoch")
+    parser.add_argument('--record_video_cadence', type=int, default=10, help="Number of games between recording video while training")
+
+    args = parser.parse_args()
+
+    train_reinforce(args)
+
 
 def train_reinforce(args):
 
@@ -112,22 +131,4 @@ def train_reinforce(args):
 
 
 if __name__ == '__main__':
-    import argparse
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('--logdir', default=LOGDIR_PATH, help="Log Directory for tensorboard logs. *Currently not being used*")
-    parser.add_argument('-lr', '--learning_rate', type=float, default=0.001, help="Learning rate of the model")
-    parser.add_argument('-g', '--gamma', type=float, default=0.9, help="Discount Rate for Reinforcement learning")
-    parser.add_argument('-opt', '--optimizer', type=str, default="ADAM", choices=["ADAM", "SGD"], help="Name of Optimizer to use for training. Supported options: 'ADAM', 'SGD'")
-    parser.add_argument('-ep', '--epochs', type=int, default=1, help="Number of epochs to train model over")
-    parser.add_argument('-nt', '--n_trajectories', type=int, default=1, help="Number of trajectories to rollout per epoch. Be careful going too high on this to avoid running out of memory!")
-    parser.add_argument('-ld', '--load_model', action='store_true', help="Load an existing state_agent model to continue training. Using state_agent/state_agent.pt")
-    parser.add_argument('--training_opponent', type=str, default="random", choices=["random", "state_agent"]+TRAINING_OPPONENT_LIST, help="Training opponent for state_agent per epoch. Defaults to random opponent")
-    parser.add_argument('--agent_team', type=int, default=0, choices=[0,1,2], help="Team number for State agent per epoch. Defaults to 0 that will randomize team number per epoch")
-    parser.add_argument('--record_video_cadence', type=int, default=10, help="Number of games between recording video while training")
-    # TODO: Any more knobs to add?
-
-    args = parser.parse_args()
-
-    train_reinforce(args)
+    main()

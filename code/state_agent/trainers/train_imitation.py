@@ -13,11 +13,21 @@ DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 DEBUG_EN = False
 ACCURARY_CLOSE_PERCENT = 0.1
 
-IMITATION_TEAM_NUM = 1
-OPPONENT_TEAM_NUM = 2 if IMITATION_TEAM_NUM == 1 else 1
+def main():
+    import argparse
 
-IMITATION_TEAM_KEY = "team%0d_state" % IMITATION_TEAM_NUM
-OPPONENT_TEAM_KEY = "team%0d_state" % OPPONENT_TEAM_NUM
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--logdir', default=LOGDIR_PATH)
+    parser.add_argument('-dp', '--dataset', type=str, help="Path to imitation pkl data", default=TRAINING_PATH)
+    parser.add_argument('-lr', '--learning_rate', type=float, default=0.01, help="Learning rate of the model")
+    parser.add_argument('-ep', '--epochs', type=int, default=2, help="Number of epochs to train model over")
+    parser.add_argument('-ld', '--load_model', action='store_true', help="Load an existing state_agent model to continue training. Using state_agent/state_agent.pt")
+    parser.add_argument('--imitation_team', type=int, choices=[1,2], default=1, help="Team the state_agent will attempt to imitate")
+
+    args = parser.parse_args()
+
+    train(args)
 
 def train(args):
 
@@ -64,7 +74,13 @@ def train(args):
 
         # For collecting training accuracies
         train_accuracy_list = []
-        loss = None
+
+        # Set opponent team number for indexing into state dictionaries
+        opponent_team = 2 if args.imitation_team == 1 else 1
+
+        # Get team keys for accessing state dictionaries
+        imitation_team_key = "team%0d_state" % args.imitation_team
+        opponent_team_key = "team%0d_state" % opponent_team
 
         # Iterate over each game
         # TODO: maybe there's a better way to randomize training across games?
@@ -78,8 +94,8 @@ def train(args):
             for state_data_dictionaries in load_recording(pkl_file):
 
                 # Get player & opponent state dictionaries
-                player_states = state_data_dictionaries[IMITATION_TEAM_KEY]
-                opponent_states = state_data_dictionaries[OPPONENT_TEAM_KEY]
+                player_states = state_data_dictionaries[imitation_team_key]
+                opponent_states = state_data_dictionaries[opponent_team_key]
 
                 # Iterate over all players on Imitation team
                 # REVISIT: could we differentiate which sub network (offense/defense) 
@@ -90,9 +106,9 @@ def train(args):
                     # Get features from dictionaries to feed into network
                     player_features = get_features(player_state, player_states[:player_num] + player_states[player_num+1:], 
                                                     opponent_states, state_data_dictionaries["soccer_state"],
-                                                    IMITATION_TEAM_NUM)
+                                                    args.imitation_team)
 
-                    if IMITATION_TEAM_NUM == 1:
+                    if args.imitation_team == 1:
                         player_action_index = 0 if player_num == 0 else 2
                     else:
                         player_action_index = 1 if player_num == 0 else 3
@@ -151,21 +167,6 @@ def convert_action_dictionary_to_tensor(action_dictionary):
                             action_dictionary.get("fire", 0),
                             action_dictionary.get("nitro", 0)),
                         dtype=torch.float32)
-
-def main():
-    import argparse
-
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument('--logdir', default=LOGDIR_PATH)
-    parser.add_argument('-dp', '--dataset', type=str, help="Path to imitation pkl data", default=TRAINING_PATH)
-    parser.add_argument('-lr', '--learning_rate', type=float, default=0.01, help="Learning rate of the model")
-    parser.add_argument('-ep', '--epochs', type=int, default=2, help="Number of epochs to train model over")
-    parser.add_argument('-ld', '--load_model', action='store_true', help="Load an existing state_agent model to continue training. Using state_agent/state_agent.pt")
-
-    args = parser.parse_args()
-
-    train(args)
 
 if __name__ == '__main__':
     main()

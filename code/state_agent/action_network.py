@@ -56,6 +56,7 @@ class ActionNetworkTrainer:
         
         self.loss_module = torch.nn.MSELoss()
 
+    # Perform a training step using a Reinforcement algorithm
     def train_step(self, prev_state_features, action, reward, curr_state_features, done):
 
         # Skip training for very first time step
@@ -77,7 +78,7 @@ class ActionNetworkTrainer:
 
         self.model.train()
 
-        ## Deep Learning Q START
+        ## Deep Q Learning START
         # 1: predicted Q values with current prev_state_features
         pred_actions = self.model(prev_state_features)
         
@@ -113,9 +114,9 @@ class ActionNetworkTrainer:
         self.optimizer.zero_grad()
         loss = self.loss_module(target_actions, pred_actions)
         loss.backward()
-        # Deep Learning Q END
+        # Deep Q Learning END
 
-        # Reinforce START 
+        # REINFORCE START TODO: Maybe try using this algorithm instead of Deep Q Learning
         # forward feed features through action network and get output
         #output = self.model(prev_state_features)
         #
@@ -129,7 +130,7 @@ class ActionNetworkTrainer:
         #
         ## Take the negative expected log return to call backwards
         #(-expected_log_return).backward()
-        # Reinforce END
+        # REINFORCE END
 
         self.optimizer.step()
 
