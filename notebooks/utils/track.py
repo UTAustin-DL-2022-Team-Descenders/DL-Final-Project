@@ -38,7 +38,7 @@ def limit_period(angle):
 
 def get_obj1_to_obj2_angle_difference(object1_angle, object2_angle):
   angle_difference = (object1_angle - object2_angle) / np.pi
-  return limit_period(angle_difference)
+  return angle_difference
 
 def cart_location(kart_info):
     # cart location
