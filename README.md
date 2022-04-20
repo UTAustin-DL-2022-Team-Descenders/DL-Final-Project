@@ -15,6 +15,10 @@ For a complete list of available command line options.
 
     python -m state_agent.trainers.train_reinforce --help
 
+Load an existing ActionNetwork from code/state_agent/state_agent.pt and perform self-play (i.e. play against state_agent). Record a video every 5 games.
+
+    python -m state_agent.trainers.train_reinforce --load_model --training_opponent state_agent --record_video_cadence 5
+
 ## Example train_imitation run command (**After generating imitation data in code/state_agent/imitation_data**):
 
 Create a new ActionNetwork and performs imitation learning for 10 epochs.

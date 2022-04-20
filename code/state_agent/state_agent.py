@@ -10,7 +10,7 @@ import torch.nn.functional as F
 DEBUG_EN = False
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 MAX_SCORE = 3
-GOAL_LINE_Y_BUFFER = 1
+GOAL_LINE_Y_BUFFER = 2
 
 # Hyperparameters
 OBJS_TOUCHING_DISTANCE_THRESHOLD = 4 # Pixel distance threshold to denote objects are touching

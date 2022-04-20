@@ -9,7 +9,6 @@ from .. import save_model
 LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'logdir')
 TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'reinforce_data')
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-RECORD_VIDEO_CADENCE = 1
 
 # Training Knobs
 
@@ -25,8 +24,7 @@ def train_reinforce(args):
                         gamma=args.gamma
                         )
 
-    #for _ in range(args.epochs):
-    while True:
+    for _ in range(args.epochs):
 
         # Set training opponent so it's visible to end of game results print
         training_opponent = args.training_opponent if args.training_opponent != "random" else get_random_opponent()
@@ -42,7 +40,7 @@ def train_reinforce(args):
                                         output_dir=TRAINING_PATH)
 
         # Periodically record video to see how the agent is doing
-        if state_agent.n_games > 0 and state_agent.n_games % RECORD_VIDEO_CADENCE == 0:
+        if state_agent.n_games > 0 and state_agent.n_games % args.record_video_cadence == 0:
             rollout("state_agent", "state_agent", os.path.abspath(os.path.dirname(__file__)), record_state=False, record_video=True, iteration=state_agent.n_games)
             print("Game %0d recorded" % state_agent.n_games)
 
@@ -93,7 +91,7 @@ def train_reinforce(args):
                 prev_state = player_features
 
             # The game is done if we've left the load_recording loop and memorized something
-            if len(state_agent.memory):
+            if len(state_agent.memory) > 0:
 
                 # Increment state agent games
                 state_agent.n_games += 1
@@ -127,6 +125,7 @@ if __name__ == '__main__':
     parser.add_argument('-ld', '--load_model', action='store_true', help="Load an existing state_agent model to continue training. Using state_agent/state_agent.pt")
     parser.add_argument('--training_opponent', type=str, default="random", choices=["random", "state_agent"]+TRAINING_OPPONENT_LIST, help="Training opponent for state_agent per epoch. Defaults to random opponent")
     parser.add_argument('--agent_team', type=int, default=0, choices=[0,1,2], help="Team number for State agent per epoch. Defaults to 0 that will randomize team number per epoch")
+    parser.add_argument('--record_video_cadence', type=int, default=10, help="Number of games between recording video while training")
     # TODO: Any more knobs to add?
 
     args = parser.parse_args()

@@ -6,7 +6,7 @@ import torch.utils.tensorboard as tb
 import numpy as np
 from ..utils import accuracy, get_pickle_files, load_recording
 
-LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'logdir')
+LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'imitation_training_logs')
 TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'imitation_data')
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -29,7 +29,7 @@ def train(args):
     model.to(DEVICE)
     train_logger = None
     if args.logdir is not None:
-        train_logger = tb.SummaryWriter(os.path.join(args.logdir, 'imitation_training'), flush_secs=1)
+        train_logger = tb.SummaryWriter(args.logdir, flush_secs=1)
 
     # Get model parameters
     parameters = model.parameters()

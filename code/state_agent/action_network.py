@@ -75,32 +75,47 @@ class ActionNetworkTrainer:
             reward = torch.unsqueeze(reward, 0)
             done = (done, )
 
+        self.model.train()
+
         ## Deep Learning Q START
         # 1: predicted Q values with current prev_state_features
-        pred = self.model(prev_state_features)
+        pred_actions = self.model(prev_state_features)
         
         # 2: Q_new = r + y * max(next_predicted Q value) -> only do this if not done
-        target = pred.clone()
+        target_actions = pred_actions.clone()
         
         # Iterate over items in batch
-        for idx in range(len(done)):
+        for batch_idx in range(len(done)):
+
+            # Get predicted actions for the current state. To be used with the discount rate.
+            curr_state_pred_actions = self.model(curr_state_features[batch_idx])
+
+            for action_idx in range(len(target_actions[batch_idx])):
         
-            # default Q_new is simply the reward
-            Q_new = reward[idx]
-        
-            # If not done, Q_new is reward + discount_rate_gamma * <highest confidence action for current state>
-            if not done[idx]:
-                Q_new = reward[idx] + self.gamma * self.model(curr_state_features[idx])
-        
-            # Set the target's action to Q_new
-            target[idx] = Q_new
+                # default Q_new is simply the reward
+                Q_new = reward[batch_idx]
+
+                # If not done, Q_new is reward + discount_rate_gamma * <highest confidence action for current state>
+                if not done[batch_idx]:
+                    Q_new = reward[batch_idx] + self.gamma * curr_state_pred_actions[action_idx]
+
+                # Set the target_actions's action to Q_new
+                # TODO: Still need to do some tweaking on applying Q_new to steering & acceleration of target_actions
+                if action_idx == 0: # This is for acceleration action
+                    acceleration_policy = Bernoulli(logits=Q_new)
+                    target_actions[batch_idx][action_idx] = acceleration_policy.sample()
+                if action_idx == 1: # This is the steering action
+                    steer_policy = Bernoulli(logits=Q_new*torch.sign(target_actions[batch_idx][[action_idx]]))
+                    target_actions[batch_idx][action_idx] = (steer_policy.sample()*2) - 1
+                else: # For all other (boolean) actions
+                    target_actions[batch_idx][action_idx] = Q_new
         
         self.optimizer.zero_grad()
-        loss = self.loss_module(target, pred)
+        loss = self.loss_module(target_actions, pred_actions)
         loss.backward()
         # Deep Learning Q END
 
-        # Reinforce START
+        # Reinforce START 
         # forward feed features through action network and get output
         #output = self.model(prev_state_features)
         #
