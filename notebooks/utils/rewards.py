@@ -39,22 +39,24 @@ def distance_traveled_reward(current_distance, next_distance, max=100):
 
     return np.clip(next_distance - current_distance, 0, max)
 
+MAX_STEERING_ANGLE_REWARD = np.pi
+
 def steering_angle_reward(current_angle, next_angle):
 
     reward = 0
     # keeping angle within +/- 0.1 degrees
-    if np.abs(next_angle) > np.deg2rad(0.1):
+    if np.abs(next_angle) > np.deg2rad(0.5):
     
         # is the steering angle shrinking?
         if np.abs(next_angle) < np.abs(current_angle):
             # less strong reward
-            reward = 1
+            reward = MAX_STEERING_ANGLE_REWARD - np.abs(next_angle)
         else:
             # no reward
             reward = -1
     else:
         # strong reward
-        reward = 2    
+        reward = MAX_STEERING_ANGLE_REWARD  
     return reward
 
 class ObjectiveEvaluator:
@@ -92,7 +94,7 @@ class TargetDistanceObjective(ObjectiveEvaluator):
     def calculate_state_score(self, t):
         ball = self.get_target(t)
         pos = cart_location(t['kart_info'])
-        distance = 1.0 - (np.linalg.norm(pos - ball) / self.max_distance)
+        distance = 1.0 - (np.abs(np.linalg.norm(pos - ball)) / self.max_distance)
         return distance
 
     def calculate_trajectory_score(self, trajectory):
