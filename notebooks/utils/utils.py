@@ -55,12 +55,12 @@ class Rollout:
         self.race = pystk.Race(race_config)
         self.race.start()  
 
-    def initialize_state(self, world_info):
+    def initialize_state(self, world_info, randomize=False):
         if self.mode == "track":
             self.track_info = track_info = pystk.Track()
             track_info.update()
         elif self.mode == "soccer":
-            ball_location = self.ball_location if self.ball_location else [0, 0]
+            ball_location = self.ball_location if self.ball_location else ([0, 0] if randomize == False else np.random.normal(loc=0.0, scale=24.0, size=(2)))
             ball_velocity = self.ball_velocity if self.ball_velocity else [0, 0]
             world_info.set_ball_location((ball_location[0], 1, ball_location[1]),
                                         (ball_velocity[0], 0, ball_velocity[1]))
@@ -87,14 +87,14 @@ class Rollout:
         controller = PlayerConfig.Controller.AI_CONTROL if is_ai else PlayerConfig.Controller.PLAYER_CONTROL
         return PlayerConfig(controller=controller, team=team_id, kart=kart)
 
-    def __call__(self, agent, n_steps=200, **kwargs):
+    def __call__(self, agent, n_steps=600, randomize=False, **kwargs):
         torch.set_num_threads(1)
         self.race.restart()
         self.race.step()
         data = []
 
         world_info = pystk.WorldState()    
-        self.initialize_state(world_info)
+        self.initialize_state(world_info, randomize=randomize)
         world_info.update()
     
         for i in range(n_steps // self.frame_skip):            
@@ -206,8 +206,8 @@ def run_agent(agent, n_steps=600, rollout=viz_rollout, **kwargs):
     return data
 
 viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
-def run_soccer_agent(agent, n_steps=600, rollout=viz_rollout_soccer):
-    data = ray.get(rollout.__call__.remote(agent, n_steps=n_steps))
+def run_soccer_agent(agent, rollout=viz_rollout_soccer, **kwargs):
+    data = ray.get(rollout.__call__.remote(agent, **kwargs))
     show_video_soccer(data)
     show_graph(data)
     return data

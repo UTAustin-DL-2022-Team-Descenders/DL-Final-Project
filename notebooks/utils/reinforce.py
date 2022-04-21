@@ -44,7 +44,7 @@ def reinforce(actor,
         assert(best_actor.train == actor.train)
         assert(best_actor.reward_type == actor.reward_type)
 
-        trajectories = rollout_many([configuration.training_agent(*slice_net, actor)]*n_trajectories, mode=configuration.mode, n_steps=n_steps)
+        trajectories = rollout_many([configuration.training_agent(*slice_net, actor)]*n_trajectories, mode=configuration.mode, randomize=True, n_steps=n_steps)
         
         # Compute all the reqired quantities to update the policy
         features = []
