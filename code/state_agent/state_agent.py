@@ -10,10 +10,11 @@ import torch.nn.functional as F
 DEBUG_EN = False
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 MAX_SCORE = 3
+GOAL_LINE_Y_BUFFER = 2
 
 # Hyperparameters
 OBJS_TOUCHING_DISTANCE_THRESHOLD = 4 # Pixel distance threshold to denote objects are touching
-ACTION_TENSOR_EPSILON_THRESHOLD = 7 # used in get_random_action for decaying exploration vs exploitation
+ACTION_TENSOR_EPSILON_THRESHOLD = 9 # used in get_random_action for decaying exploration vs exploitation
 
 # StateAgent Default values
 DISCOUNT_RATE_GAMMA = 0.9 # between 0 to 1
@@ -87,7 +88,7 @@ class StateAgent:
     # Either take a random action (exploration)
     # or prediction action from the model (exploitation).
     # Likeihood of random action decays as number of games increases
-    if random.randint(0, 200) < epsilon:
+    if random.randint(0, 10) < epsilon:
         action_tensor = self.get_random_action()
     else:
         action_tensor = self.model(state_features)
@@ -208,13 +209,13 @@ def get_features(player_state, team_state, opponent_states, puck_state, team_id)
     features_dict["kart_to_puck_angle"]  = get_obj1_to_obj2_angle(features_dict["player_kart_center"], features_dict["puck_center"]) 
 
     # Get goal line features
-    # - Opponent goal line i.e. the goal that this team is targetting
-    features_dict["opponent_goal_line_center"] = get_team_goal_line(puck_state, get_target_goal_by_team_id(team_id))
+    # - Opponent goal line
+    features_dict["opponent_goal_line_center"] = get_team_goal_line_center(puck_state, get_goal_by_team_id(team_id+1))
     features_dict["puck_to_opponent_goal_line_angle"] = get_obj1_to_obj2_angle(features_dict["puck_center"], features_dict["opponent_goal_line_center"])
     features_dict["kart_to_opponent_goal_line_difference"] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_angle"], features_dict["puck_to_opponent_goal_line_angle"])
 
-    # - Team goal line i.e. the goal that the opponent team is targetting
-    features_dict["team_goal_line_center"] = get_team_goal_line(puck_state, get_target_goal_by_team_id(team_id+1))
+    # - Team goal line
+    features_dict["team_goal_line_center"] = get_team_goal_line_center(puck_state, get_goal_by_team_id(team_id))
     features_dict["puck_to_team_goal_line_angle"] = get_obj1_to_obj2_angle(features_dict["puck_center"], features_dict["team_goal_line_center"])
     features_dict["kart_to_team_goal_line_difference"] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_angle"], features_dict["puck_to_team_goal_line_angle"])
 
@@ -274,8 +275,11 @@ def get_object_center(state_dict):
 def get_puck_center(puck_state):
   return get_object_center(puck_state["ball"])
 
-def get_team_goal_line(puck_state, team_id):
+def get_team_goal_line_center(puck_state, team_id):
   return torch.tensor(puck_state['goal_line'][team_id], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
+
+def get_team_goal_line(puck_state, team_id):
+  return torch.tensor(puck_state['goal_line'][team_id], dtype=torch.float32)[:, [0, 2]]
 
 # limit angle between -1 to 1
 def limit_period(angle):
@@ -286,62 +290,66 @@ def get_obj1_to_obj2_angle_difference(object1_angle, object2_angle):
   return limit_period(angle_difference)
 
 # Assumes there are always two teams (0 and 1)
-def get_target_goal_by_team_id(team_id):
+def get_goal_by_team_id(team_id):
   return (team_id+1) % 2
-
-
-
-# TODO: Make this reward function more robust
-def get_reward(player_state, team_state, opponent_states, puck_state, team_id):
-  reward = 0
-
-  opponent_target_goal_line = get_team_goal_line(puck_state, get_target_goal_by_team_id(team_id+1))
-  team_target_goal_line = get_team_goal_line(puck_state, get_target_goal_by_team_id(team_id))
-  puck_center = get_puck_center(puck_state)
-  kart_center = get_kart_center(player_state)
-
-  if DEBUG_EN:
-    print("get_reward - distance to team's target goal line", get_obj1_to_obj2_distance(puck_center, team_target_goal_line))
-    print("get_reward - distance to opponent's  target goal line", get_obj1_to_obj2_distance(puck_center, opponent_target_goal_line))
-
-  if is_touching(kart_center, puck_center):
-    reward += 1
-    if DEBUG_EN:
-      print("player is touching the puck")
-
-  if is_puck_in_goal(puck_center, opponent_target_goal_line):
-    reward += -1000
-    if DEBUG_EN:
-      print("puck is in opponent target goal")
-  elif is_puck_in_goal(puck_center, team_target_goal_line):
-    reward += 1000
-    if DEBUG_EN:
-      print("puck is in team target goal")
-  
-  return torch.tensor(reward, dtype=torch.float32)
-
-def is_touching(object1_center, object2_center):
-  return get_obj1_to_obj2_distance(object1_center, object2_center) < OBJS_TOUCHING_DISTANCE_THRESHOLD
-
-def is_puck_in_goal(puck_center, goal_line):
-  return is_touching(puck_center, goal_line)
-
-def get_obj1_to_obj2_distance(object1_center, object2_center):
-  return F.pairwise_distance(object1_center, object2_center)
-
 
 # Assumes network outputs 6 different actions
 # Output channel order: [acceleration, steer, brake, drift, fire, nitro]
 # REVIST: Using simple thresholding for boolean actions for now
 def get_action_dictionary_from_network_output(network_output):
-    return dict(acceleration=torch.sigmoid(network_output[0]),
-                steer=torch.clamp(network_output[1], -1, 1),
-                brake=(network_output[2] > 0.5),
-                drift=(network_output[3] > 0.5),
-                fire=(network_output[4] > 0.5),
-                nitro=(network_output[5] > 0.5)
+    return dict(acceleration=network_output[0],
+                steer=network_output[1],
+                brake=network_output[2] > 0.5,
+                drift=network_output[3] > 0.5,
+                fire=network_output[4]  > 0.5,
+                nitro=network_output[5] > 0.5
                 )
 
-# Get the score of a team using team_id.
+
+# TODO: Make this reward function more robust
+def get_reward(player_state, team_state, opponent_states, puck_state, team_id):
+  DEBUG_EN = False
+  reward = 0
+
+  player_goal_line = get_team_goal_line(puck_state, get_goal_by_team_id(team_id))
+  opponent_goal_line = get_team_goal_line(puck_state, get_goal_by_team_id(team_id+1))
+  puck_center = get_puck_center(puck_state)
+  kart_center = get_kart_center(player_state)
+
+  if is_touching(kart_center, puck_center):
+    reward += 10
+    if DEBUG_EN:
+      print("player is touching the puck")
+
+  if is_puck_in_goal(puck_center, player_goal_line):
+    reward -= 100
+    if DEBUG_EN:
+      print("puck is in player goal")
+  elif is_puck_in_goal(puck_center, opponent_goal_line):
+    reward += 100
+    if DEBUG_EN:
+      print("puck is in opponent goal")
+  
+  return torch.tensor(reward, dtype=torch.float32)
+
+def is_touching(object1_center, object2_center, threshold=OBJS_TOUCHING_DISTANCE_THRESHOLD):
+  return get_obj1_to_obj2_distance(object1_center, object2_center) < threshold
+
+def is_puck_in_goal(puck_center, goal_line):
+  
+  # The puck is in goal if the puck_center is in between the two sides of the goal
+  # and past the Y axis of the goal line minus a small buffer
+  
+  if goal_line[0][0] < puck_center[0] < goal_line[1][0] and \
+  abs(puck_center[1]) >= abs(goal_line[0][1])-GOAL_LINE_Y_BUFFER:
+    return True
+  else:
+    return False
+
+def get_obj1_to_obj2_distance(object1_center, object2_center):
+  return F.pairwise_distance(object1_center, object2_center)
+
+
+# Get the score of a team using team_id
 def get_score(puck_state, team_id):
-  return puck_state["score"][get_target_goal_by_team_id(team_id)]
+  return puck_state["score"][get_goal_by_team_id(team_id)]

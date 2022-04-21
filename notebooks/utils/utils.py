@@ -202,6 +202,13 @@ def show_trajectory_histogram(trajectories, metric=cart_overall_distance, min=0,
     plt.hist(scores, range(min, max, (max - min) // bins), density=True)
     plt.show()
 
+def show_steering_graph(data):
+    import matplotlib.pyplot as plt
+
+    steer = [t['action'].steer for t in data]
+    plt.plot(steer)
+    plt.show()
+
 viz_rollout = Rollout.remote(400, 300)
 def run_agent(agent, n_steps=600, rollout=viz_rollout, **kwargs):
     data = ray.get(rollout.__call__.remote(agent, track_feature_extractor, n_steps=n_steps, **kwargs))
