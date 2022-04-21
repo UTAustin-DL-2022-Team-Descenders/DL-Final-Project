@@ -7,14 +7,59 @@ from torch.distributions import Bernoulli, Normal
 from utils.track import state_features, state_features_soccer
 from utils.rewards import lateral_distance_reward, lateral_distance_causal_reward, distance_traveled_reward, steering_angle_reward
 
-def new_action_net():
-    return torch.nn.Sequential(
-        #torch.nn.BatchNorm1d(3*5*3),
-        torch.nn.Linear(3*5*3, 20, bias=False),
-        torch.nn.ReLU(),
-        torch.nn.Linear(20, 1, bias=False),
-        torch.nn.Sigmoid()
-    )
+def new_action_net(n_outputs=1, type="linear_tanh"):
+    if type == "linear_sigmoid":
+        return LinearWithSigmoid(n_outputs)
+    elif type == "linear_tanh":
+        return LinearWithTanh(n_outputs)
+    else:
+        raise Exception("Unknown action net")
+        
+class BaseNetwork(torch.nn.Module):
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.activation = None
+
+    def forward(self, x, train=None):
+        return self.net(x)
+
+class LinearWithSigmoid(BaseNetwork):
+
+    def __init__(self, n_outputs=1) -> None:
+        super().__init__()
+        self.activation = torch.nn.Sigmoid
+        self.net = torch.nn.Sequential(
+            #torch.nn.BatchNorm1d(3*5*3),
+            torch.nn.Linear(3*5*3, 20, bias=False),
+            torch.nn.ReLU(),
+            torch.nn.Linear(20, n_outputs, bias=False),
+            self.activation()
+            # torch.nn.HardSigmoid() # can train better than sigmoid, with less optimal output
+        )
+    
+class LinearWithTanh(BaseNetwork):
+
+    def __init__(self, n_outputs=1) -> None:
+        super().__init__()
+        self.activation = torch.nn.Tanh
+        self.net = torch.nn.Sequential(
+            #torch.nn.BatchNorm1d(3*5*3),
+            torch.nn.Linear(3*5*3, 20, bias=False),
+            torch.nn.ReLU(),
+            torch.nn.Linear(20, n_outputs, bias=False),
+            self.activation()
+            # torch.nn.Hardtanh() # can train better than tanh, with less optimal output
+        )
+
+    def forward(self, x, train=None):
+        if train == "reinforce":
+            output = self.net(x)
+            # the training output needs to be a probability
+            output = (output + 1) / 2
+            return output
+        else:
+            return super().forward(x)
 
 class BaseActor:
 
@@ -25,6 +70,13 @@ class BaseActor:
 
     def copy(self, action_net):
         return self.__class__(action_net, train=self.train, reward_type=self.reward_type)
+
+    def sample_bernoulli(self, output):
+        if self.action_net.activation == torch.nn.Tanh or \
+           self.action_net.activation == torch.nn.Hardtanh:
+            output = (output + 1) / 2
+        output = Bernoulli(probs=output).sample()
+        return output
     
 class SteeringActor(BaseActor):
     
@@ -32,11 +84,10 @@ class SteeringActor(BaseActor):
         output = self.action_net(f)[0]
         if self.train is not None:
             train = self.train
-        if train:            
-            steer_dist = Bernoulli(probs=output)
-            action.steer = steer_dist.sample() * 2 - 1
+        if train:                        
+            action.steer = self.sample_bernoulli(output) * 2 - 1
         else:
-            action.steer = output[0] * 2 - 1
+            action.steer = output[0]
         return action
 
     def reward(self, action, current_angle=Inf, next_angle=Inf, current_lat=Inf, next_lat=Inf, **kwargs):
@@ -54,9 +105,8 @@ class DriftActor(BaseActor):
         output = self.action_net(f)[0] 
         if self.train is not None:
             train = self.train
-        if train:
-            drift_dist = Bernoulli(probs=output)
-            action.drift = drift_dist.sample() > 0.5
+        if train:            
+            action.drift = self.sample_bernoulli(output) > 0.5
         else:
             # drift is a binary value
             action.drift = output[0] > 0.5
