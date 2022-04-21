@@ -3,10 +3,6 @@ import torch
 import numpy as np
 from torch.distributions import Bernoulli, Normal
 from utils.utils import rollout_many, device, RaceTrackReinforcementConfiguration
-from utils.rewards import ObjectiveEvaluator, OverallDistanceObjective
-from utils.track import state_features, three_points_on_track, cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle, get_puck_center, \
-    get_obj1_to_obj2_angle_difference
-from utils.actors import Agent, TrainingAgent, SteeringActor
 
 def collect_dist(trajectories):
     results = []
@@ -44,7 +40,7 @@ def reinforce(actor,
         assert(best_actor.train == actor.train)
         assert(best_actor.reward_type == actor.reward_type)
 
-        trajectories = rollout_many([configuration.training_agent(*slice_net, actor)]*n_trajectories, mode=configuration.mode, randomize=True, n_steps=n_steps)
+        trajectories = rollout_many([configuration.agent(*slice_net, actor, train=True)]*n_trajectories, mode=configuration.mode, randomize=True, n_steps=n_steps)
         
         # Compute all the reqired quantities to update the policy
         features = []
@@ -56,7 +52,7 @@ def reinforce(actor,
         for trajectory in trajectories:
             for i in range(len(trajectory)):
                 # Compute the features                
-                state = configuration.extractor(**trajectory[i])
+                state = actor.select_features(configuration.extractor, configuration.extractor.get_feature_vector(**trajectory[i]))
                 features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
 
         it = 0
@@ -66,58 +62,19 @@ def reinforce(actor,
             loss = []
 
             for i in range(len(trajectory)):                
-                lateral_sum = 0
-                
                 # Compute the returns
 
-                # if the kart is off center too much 
-                kart_info = trajectory[i]['kart_info']
-                track_info = trajectory[i]['track_info']                
-
-                current_lat = next_lat = None
-                current_distance = next_distance = None
-                if track_info:
-                    points = three_points_on_track(kart_info.distance_down_track, track_info)
-                    current_lat = cart_lateral_distance(kart_info, points)
-                    current_distance = kart_info.overall_distance
-                    down_track_angle = get_obj1_to_obj2_angle(cart_location(kart_info), points[1])
-                    # current angle is where the kart is facing vs where it should be facing
-                    current_angle = get_obj1_to_obj2_angle_difference(cart_angle(kart_info), down_track_angle)
-                else:
-                    soccer_info = trajectory[i]['soccer_state'] 
-                    puck_location = get_puck_center(soccer_info)
-                    puck_angle = get_obj1_to_obj2_angle(cart_location(kart_info), puck_location)
-                    # current angle is where the kart is facing vs where it should be facing
-                    current_angle = get_obj1_to_obj2_angle_difference(cart_angle(kart_info), puck_angle)
-                    
-                kart_info = trajectory[min(i+T, len(trajectory)-1)]['kart_info']
-                track_info = trajectory[min(i+T, len(trajectory)-1)]['track_info']
-                if track_info:
-                    points = three_points_on_track(kart_info.distance_down_track, track_info)
-                    next_lat = cart_lateral_distance(kart_info, points)
-                    next_distance = kart_info.overall_distance
-                    down_track_angle = get_obj1_to_obj2_angle(cart_location(kart_info), points[1])
-                    # next angle is where the kart should be facing down the track (midpoint)
-                    next_angle = get_obj1_to_obj2_angle(cart_location(kart_info), down_track_angle)
-                else:
-                    soccer_state = trajectory[min(i+T, len(trajectory)-1)]['soccer_state']
-                    puck_location = get_puck_center(soccer_state)   
-                    puck_angle = get_obj1_to_obj2_angle(cart_location(kart_info), puck_location)                 
-                    next_angle = get_obj1_to_obj2_angle_difference(cart_angle(kart_info), puck_angle)
-
+                # if the kart is off center too much                  
                 action = trajectory[i]['action']
 
                 reward = actor.reward(
-                                        action,
-                                        current_lat=current_lat,
-                                        next_lat=next_lat,
-                                        current_distance=current_distance,
-                                        next_distance=next_distance,
-                                        current_angle=current_angle,
-                                        next_angle=next_angle
-                                     )
+                    action,
+                    configuration.extractor,
+                    features[it + i],
+                    features[it + min(i + T, len(trajectory)-1)]
+                )
                 
-                loss.append(np.abs(current_lat if current_lat else current_angle))
+                loss.append(0)
             
                 returns.append(reward) 
                 

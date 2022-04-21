@@ -74,61 +74,85 @@ def cart_lateral_distance(kart_info, points):
 def cart_overall_distance(kart_info, **kwargs):
     return kart_info.overall_distance
 
-def state_features(track_info, kart_info, absolute=False, **kwargs):
+class Features():
+    pass
+
+class SoccerFeatures(Features):
     
-    # generates 5, 3, 2 tensor that contains the track geometry points x units down the track
-    points = [three_points_on_track(kart_info.distance_down_track + d, track_info) for d in [0,5,10,15,20]]
+    DELTA_STEERING_ANGLE = 44
     
-    f = np.concatenate(points)
-    if absolute:
-        return f
+    def get_feature_vector(self, track_info, kart_info, soccer_state, absolute=False, **kwargs):
+
+        # cart location
+        p = cart_location(kart_info)
+
+        # cart front
+        front = cart_front(kart_info)
+
+        # puck
+        puck = get_puck_center(soccer_state)
+        
+        # steering angles to points down the track
+        steer_angle = get_obj1_to_obj2_angle(p, front)
+        steer_angle_puck = get_obj1_to_obj2_angle(p, puck)
+        
+        features = np.zeros(45).astype(np.float32)
+
+        features[0:2] = p - puck
+        features[self.DELTA_STEERING_ANGLE] = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
+
+        return features
+
+    def select_delta_steering(self, features):        
+        return features[self.DELTA_STEERING_ANGLE]
+
+    def select_lateral_distance(self, features):
+        return 0
+
+
+class TrackFeatures(Features):
     
-    # cart location
-    p = cart_location(kart_info)
+    DELTA_STEERING_ANGLE = 44
 
-    # cart front
-    front = cart_front(kart_info)
+    def get_feature_vector(self, track_info, kart_info, absolute=False, **kwargs):
     
-    # cart direction unit vector    
-    d = cart_direction(kart_info)
+        # generates 5, 3, 2 tensor that contains the track geometry points x units down the track
+        points = [three_points_on_track(kart_info.distance_down_track + d, track_info) for d in [0,5,10,15,20]]
+        
+        f = np.concatenate(points)
+        if absolute:
+            return f
+        
+        # cart location
+        p = cart_location(kart_info)
 
-    # lane points relative to the kart location
-    f = f - p[None]
+        # cart front
+        front = cart_front(kart_info)
+        
+        # cart direction unit vector    
+        d = cart_direction(kart_info)
+
+        # lane points relative to the kart location
+        f = f - p[None]
+        
+        # (negated) cart orthogonal direction unit vector
+        d_o = np.array([-d[1], d[0]], dtype=np.float32)
+        
+        # steering angles to points down the track
+        steer_angle = get_obj1_to_obj2_angle(p, front)
+        steering_angles = [
+            get_obj1_to_obj2_angle_difference(steer_angle, get_obj1_to_obj2_angle(p, point[1])) 
+            for point in points
+        ]
+
+        merged = np.concatenate([cart_lateral_distances(kart_info, np.array(points)), np.zeros(5), np.array(steering_angles)]).astype(np.float32)
     
-    # (negated) cart orthogonal direction unit vector
-    d_o = np.array([-d[1], d[0]], dtype=np.float32)
-    
-    # steering angles to points down the track
-    steer_angle = get_obj1_to_obj2_angle(p, front)
-    steering_angles = [
-        get_obj1_to_obj2_angle_difference(steer_angle, get_obj1_to_obj2_angle(p, point[1])) 
-        for point in points
-    ]
+        #print(laterals)
 
-    merged = np.concatenate([cart_lateral_distances(kart_info, np.array(points)), np.array(steering_angles), np.zeros(5)]).astype(np.float32)
-   
-    #print(laterals)
+        return np.stack([f.dot(d), f.dot(d_o), merged], axis=1).flatten()
 
-    return np.stack([f.dot(d), f.dot(d_o), merged], axis=1)
+    def select_delta_steering(self, features):
+        return features[self.DELTA_STEERING_ANGLE]
 
-def state_features_soccer(track_info, kart_info, soccer_state, absolute=False, **kwargs):
-
-    # cart location
-    p = cart_location(kart_info)
-
-    # cart front
-    front = cart_front(kart_info)
-
-    # puck
-    puck = get_puck_center(soccer_state)
-    
-    # steering angles to points down the track
-    steer_angle = get_obj1_to_obj2_angle(p, front)
-    steer_angle_puck = get_obj1_to_obj2_angle(p, puck)
-    
-    features = np.zeros(45).astype(np.float32)
-
-    features[0:2] = p - puck
-    features[35] = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
-
-    return features
+    def select_lateral_distance(self, features):
+        return features[30]    

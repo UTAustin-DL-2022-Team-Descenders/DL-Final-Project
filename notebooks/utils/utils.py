@@ -1,7 +1,7 @@
 from utils.rewards import SoccerBallDistanceObjective
-from utils.actors import Agent, TrainingAgent
+from utils.base_actors import Agent
 from utils.rewards import ObjectiveEvaluator, OverallDistanceObjective, TargetDistanceObjective
-from utils.track import state_features, state_features_soccer, three_points_on_track,cart_direction, \
+from utils.track import TrackFeatures, SoccerFeatures, three_points_on_track,cart_direction, \
     cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle, get_puck_center, \
     cart_overall_distance
 import torch
@@ -87,7 +87,7 @@ class Rollout:
         controller = PlayerConfig.Controller.AI_CONTROL if is_ai else PlayerConfig.Controller.PLAYER_CONTROL
         return PlayerConfig(controller=controller, team=team_id, kart=kart)
 
-    def __call__(self, agent, n_steps=600, randomize=False, **kwargs):
+    def __call__(self, agent, extractor, n_steps=600, randomize=False, **kwargs):
         torch.set_num_threads(1)
         self.race.restart()
         self.race.step()
@@ -104,7 +104,7 @@ class Rollout:
             agent_data = self.agent_data(world_info)
 
             # Act
-            action = agent(**agent_data)
+            action = agent(extractor, **agent_data)
             agent_data['action'] = action
 
             # Take a step in the simulation
@@ -115,6 +115,8 @@ class Rollout:
             data.append(agent_data)
         return data
 
+track_feature_extractor = TrackFeatures()
+
 def show_video(data, fps=30):
     import imageio
     from IPython.display import Video, display 
@@ -122,7 +124,7 @@ def show_video(data, fps=30):
     frames = [d['image'] for d in data]    
     distances = [t['kart_info'].overall_distance for t in data]
     actions = [t['action'] for t in data]
-    features = [state_features(**t) for t in data]
+    features = [track_feature_extractor.get_feature_vector(**t) for t in data]
     directions = [cart_direction(t['kart_info']) for t in data]
     laterals = [cart_lateral_distance(t['kart_info'], three_points_on_track(t['kart_info'].distance_down_track, t['track_info'])) for t in data]
     angles = [(cart_angle(t['kart_info']), get_obj1_to_obj2_angle(cart_location(t['kart_info']), three_points_on_track(t['kart_info'].distance_down_track, t['track_info'])[1])) for t in data]
@@ -143,6 +145,8 @@ def show_video(data, fps=30):
     imageio.mimwrite('/tmp/test.mp4', images, fps=fps, bitrate=1000000)
     display(Video('/tmp/test.mp4', width=800, height=600, embed=True))
 
+soccer_feature_extractor = SoccerFeatures()
+
 def show_video_soccer(data, fps=30):
     import imageio
     from IPython.display import Video, display 
@@ -150,7 +154,7 @@ def show_video_soccer(data, fps=30):
     frames = [d['image'] for d in data]    
     frames_map = [d['map'] for d in data]    
     actions = [t['action'] for t in data]
-    features = [state_features_soccer(**t) for t in data]
+    features = [soccer_feature_extractor.get_feature_vector(**t) for t in data]
     distances = [np.linalg.norm(get_puck_center(t['soccer_state']) - cart_location(t['kart_info'])) for t in data]
 
     images = []
@@ -200,14 +204,14 @@ def show_trajectory_histogram(trajectories, metric=cart_overall_distance, min=0,
 
 viz_rollout = Rollout.remote(400, 300)
 def run_agent(agent, n_steps=600, rollout=viz_rollout, **kwargs):
-    data = ray.get(rollout.__call__.remote(agent, n_steps=n_steps, **kwargs))
+    data = ray.get(rollout.__call__.remote(agent, track_feature_extractor, n_steps=n_steps, **kwargs))
     show_video(data)
     show_graph(data)
     return data
 
 viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
 def run_soccer_agent(agent, rollout=viz_rollout_soccer, **kwargs):
-    data = ray.get(rollout.__call__.remote(agent, **kwargs))
+    data = ray.get(rollout.__call__.remote(agent, soccer_feature_extractor, **kwargs))
     show_video_soccer(data)
     show_graph(data)
     return data
@@ -221,8 +225,9 @@ def rollout_many(many_agents, mode="track", **kwargs):
         viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode=mode) for i in range(10)]
         last_mode = mode
     ray_data = []
+    extractor = track_feature_extractor if mode == "track" else soccer_feature_extractor
     for i, agent in enumerate(many_agents):
-         ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )    
+         ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, extractor, **kwargs) )    
     return ray.get(ray_data)
 
 def dummy_agent(**kwargs):
@@ -236,10 +241,9 @@ class RaceTrackReinforcementConfiguration:
 
     def __init__(self) -> None:
         self.evaluator = OverallDistanceObjective()
-        self.extractor = state_features
-        self.agent = Agent
-        self.training_agent = TrainingAgent
-
+        self.extractor = TrackFeatures()
+        self.agent = Agent        
+        
 class SoccerReinforcementConfiguration(RaceTrackReinforcementConfiguration):
 
     mode = "soccer"
@@ -247,4 +251,4 @@ class SoccerReinforcementConfiguration(RaceTrackReinforcementConfiguration):
     def __init__(self) -> None:
         super().__init__()
         self.evaluator = SoccerBallDistanceObjective()
-        self.extractor = state_features_soccer
+        self.extractor = SoccerFeatures()
