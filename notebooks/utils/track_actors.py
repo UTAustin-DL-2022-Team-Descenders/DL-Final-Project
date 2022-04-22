@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from numpy import Inf
-from utils.base_actors import BaseActor, LinearWithTanh, LinearWithSigmoid, Agent
+from utils.base_actors import BaseActor, LinearWithTanh, LinearWithSigmoid, Agent as BaseAgent
 from utils.track import TrackFeatures
 from utils.rewards import lateral_distance_reward, lateral_distance_causal_reward, steering_angle_reward
 
@@ -71,6 +71,6 @@ class DriftActor(BaseActor):
     def select_features(self, features, features_vec):
         return features_vec
 
-class RacingAgent(Agent):
+class Agent(BaseAgent):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, features=TrackFeatures, **kwargs)
+        super().__init__(*args, extractor=TrackFeatures(), **kwargs)
