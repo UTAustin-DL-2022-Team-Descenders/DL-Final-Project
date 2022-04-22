@@ -1,7 +1,7 @@
 import torch
 from utils.track import SoccerFeatures
 from utils.base_actors import BaseActor, LinearWithTanh, LinearWithSigmoid, Agent as BaseAgent
-
+from utils.rewards import steering_angle_reward
 class SteeringActor(BaseActor):
     
     def __init__(self, action_net=None, train=None, **kwargs):
@@ -25,7 +25,7 @@ class SteeringActor(BaseActor):
         return steering_angle_reward(current_angle, next_angle)        
     
     def extract_greedy_action(self, action):
-        return action.steer > 0
+        return [action.steer > 0]
 
     def select_features(self, features, features_vec):
         delta_steering_angle = features.select_delta_steering(features_vec)        
@@ -58,7 +58,7 @@ class DriftActor(BaseActor):
         return steering_angle_reward(current_angle, next_angle)
         
     def extract_greedy_action(self, action):
-        return action.drift > 0.5
+        return [action.drift > 0.5]
 
     def select_features(self, features, features_vec):
         delta_steering_angle = features.select_delta_steering(features_vec)        

@@ -32,7 +32,7 @@ class SteeringActor(BaseActor):
             return lateral_distance_reward(current_lat, next_lat)
     
     def extract_greedy_action(self, action):
-        return action.steer > 0
+        return [action.steer > 0]
 
     def select_features(self, features, features_vec):
         return features_vec
@@ -66,7 +66,7 @@ class DriftActor(BaseActor):
             return lateral_distance_causal_reward(current_lat, next_lat)        
 
     def extract_greedy_action(self, action):
-        return action.drift > 0.5
+        return [action.drift > 0.5]
 
     def select_features(self, features, features_vec):
         return features_vec
