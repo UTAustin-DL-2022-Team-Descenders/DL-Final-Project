@@ -105,7 +105,7 @@ def reinforce(actor,
             batch_features = features[batch_ids]
           
             output = action_net(batch_features, train="reinforce")
-            pi = Bernoulli(probs=output[:,0])
+            pi = Bernoulli(probs=output)
             
             expected_log_return = (pi.log_prob(batch_actions)*batch_returns).mean()
             optim.zero_grad()
