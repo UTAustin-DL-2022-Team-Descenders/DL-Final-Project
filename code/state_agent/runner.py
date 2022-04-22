@@ -1,6 +1,7 @@
 import sys
 import logging
 import numpy as np
+import traceback
 from collections import namedtuple
 from functools import reduce
 
@@ -46,6 +47,9 @@ class AIRunner:
     agent_type = 'state'
     is_ai = True
 
+    def set_training_mode(self, mode):
+        pass
+
     def new_match(self, team: int, num_players: int) -> list:
         pass
 
@@ -73,25 +77,29 @@ class TeamRunner:
 
         self._error = None
         self._team = None
-        try:            
-            if isinstance(team_or_dir, (str, Path)):
+        try:                 
+            if isinstance(team_or_dir, (str, Path)):     
                 assignment = load_assignment(team_or_dir)
                 if assignment is None:
                     self._error = 'Failed to load submission.'
-                else:
+                else:                    
                     self._team = assignment.Team()
-            else:
-                self._team = team_or_dir
+            else:                
+                self._team = team_or_dir            
         except Exception as e:
             traceback.print_exc()
             self._error = Exception('Failed to load submission: {}'.format(str(e)))
         if hasattr(self, '_team') and self._team is not None:
             self.agent_type = self._team.agent_type
 
+    def set_training_mode(self, mode):
+        if hasattr(self._team, "set_training_mode"):
+            self._team.set_training_mode(mode)
+
     def new_match(self, team: int, num_players: int) -> list:
         self._total_act_time = 0
         self._error = None
-        try:            
+        try:      
             r = self._team.new_match(team, num_players)
             if isinstance(r, str) or isinstance(r, list) or r is None:
                 return r
@@ -191,7 +199,7 @@ class Match:
         return list(map(lambda t: t < timeout, timeouts))
 
     def run(self, teams, num_player=1, num_frames=MAX_FRAMES, max_score=3, record_fn=None, timeout=1e10,
-            initial_ball_location=[0, 0], initial_ball_velocity=[0, 0], verbose=False):
+            initial_ball_location=[0, 0], initial_ball_velocity=[0, 0], training_mode=None, verbose=False):
 
         race = None
         RaceConfig = self._pystk.RaceConfig
@@ -201,6 +209,9 @@ class Match:
 
         # Start a new match
         team_cars = [self._g(self._r(team.new_match)(idx, num_player)) or ['tux'] * num_player for idx, team in enumerate(teams)]
+
+        # set the training mode
+        [self._g(self._r(team.set_training_mode)(training_mode)) for team in teams]
 
         for team in teams:
             if self._g(self._r(team.info)())[0] == "image":
@@ -258,7 +269,7 @@ class Match:
                 team_actions_delayed = []
                 for idx, (team, team_can_act, team_state, team_img) in enumerate(zip(teams, can_act, team_states, team_images)):            
                     if team_can_act:
-                        if team.info()[0] == 'image':
+                        if self._g(self._r(team.info)())[0] == "image":
                             team_actions_delayed.append(self._r(team.act)(team_state, team_img))
                         else:
                             team_actions_delayed.append(self._r(team.act)(team_state, team_states[0] if idx == 1 else (team_states[1] if len(team_states) > 1 else None), soccer_state))
@@ -298,33 +309,19 @@ class Match:
     def wait(self, x):
         return x
 
-def main():
-    from argparse import ArgumentParser
-    from pathlib import Path
+def runner(args):
+
+    from pathlib import Path    
     from os import environ
     from state_agent import remote
     import state_agent.utils as utils
     
+    teams = []
+    states = []
     try:
-        parser = ArgumentParser(description="Play some Ice Hockey. List any number of players, odd players are in team 1, even players team 2.")
-        parser.add_argument('-r', '--record_video', help="Do you want to record a video?")
-        parser.add_argument('-s', '--record_state', help="Do you want to pickle the state?")
-        parser.add_argument('-f', '--num_frames', default=1200, type=int, help="How many steps should we play for?")
-        parser.add_argument('-p', '--num_players', default=2, type=int, help="Number of players per team")
-        parser.add_argument('-m', '--max_score', default=3, type=int, help="How many goal should we play to?")
-        parser.add_argument('-j', '--parallel', type=int, help="How many parallel process to use?")
-        parser.add_argument('--matches', default=1, type=int, help="Number of matches to run")
-        parser.add_argument('--ball_location', default=[0, 0], type=float, nargs=2, help="Initial xy location of ball")
-        parser.add_argument('--ball_velocity', default=[0, 0], type=float, nargs=2, help="Initial xy velocity of ball")
-        parser.add_argument('team1', help="Python module name or `AI` for AI players.")
-        parser.add_argument('--team2', default=None, help="Python module name or `AI` for AI players.")
-        args = parser.parse_known_args()[0]
-
-        logging.basicConfig(level=environ.get('LOGLEVEL', 'WARNING').upper())
-
+    
         if args.parallel is None or remote.ray is None:
             # Create the teams
-            teams = []
             if args.team1:
                 teams.append(AIRunner() if args.team1 == 'AI' else TeamRunner(args.team1))
             if args.team2:
@@ -341,18 +338,25 @@ def main():
                 if args.record_video:
                     record_video_suffix = Path(args.record_video).suffix
                     record_video_name = args.record_video.replace(record_video_suffix, "")                    
-                    recorder = recorder & utils.VideoRecorder("{}_{:05d}{}".format(record_video_name, m, record_video_suffix))
+                    recorder = utils.VideoRecorder("{}_{:05d}{}".format(record_video_name, m, record_video_suffix))
 
+                # always record the state (this is in the state_agent module so it is a valid assumption)
+                record_state_file = None
                 if args.record_state:
                     record_state_suffix = Path(args.record_state).suffix                    
-                    record_state_name = args.record_state.replace(record_state_suffix, "")                    
-                    recorder = recorder & utils.StateRecorder("{}_{:05d}{}".format(record_state_name, m, record_state_suffix))
-                
+                    record_state_name = args.record_state.replace(record_state_suffix, "")  
+                    record_state_file = "{}_{:05d}{}".format(record_state_name, m, record_state_suffix)
+                # else save the states in memory
+
+                recorder = recorder & utils.StateRecorder(record_state_file)
+                    
                 try:
                     result = match.run(teams, args.num_players, args.num_frames, max_score=args.max_score,
                                     initial_ball_location=args.ball_location, initial_ball_velocity=args.ball_velocity,
+                                    training_mode=args.training_mode,
                                     record_fn=recorder)
-                    print('Match results', result)
+                    print('Match results', result)                                                
+                    states.append(recorder.states)                        
                 except MatchException as e:
                     raise e.exp
 
@@ -363,14 +367,13 @@ def main():
             remote.init(logging_level=getattr(logging, environ.get('LOGLEVEL', 'WARNING').upper()), configure_logging=True,
                         log_to_driver=True, include_dashboard=False)
 
-            # Create the teams
-            teams = []
+            # Create the teams            
             team_infos = []
-            if args.team1:
+            if args.team1:                
                 team1 = AIRunner() if args.team1 == 'AI' else remote.RayTeamRunner.remote(args.team1)
                 teams.append(team1)
                 team_infos.append(team1.info() if args.team1 == 'AI' else remote.get(team1.info.remote()))
-            if args.team1:
+            if args.team2:
                 team2 = AIRunner() if args.team2 == 'AI' else remote.RayTeamRunner.remote(args.team2)
                 teams.append(team2)            
                 team_infos.append(team2.info() if args.team2 == 'AI' else remote.get(team2.info.remote()))
@@ -389,15 +392,22 @@ def main():
             results = []
             for i in range(args.matches):
                 recorder = None
-                if args.record_video:
-                    ext = Path(args.record_video).suffix
-                    recorder = remote.RayVideoRecorder.remote(args.record_video.replace(ext, '_{:05d}{}'.format(i, ext)))
-                elif args.record_state:
+                # XXX difficult to make both work?
+                #if args.record_video:
+                #    ext = Path(args.record_video).suffix
+                #    recorder = remote.RayVideoRecorder.remote(args.record_video.replace(ext, '_{:05d}{}'.format(i, ext)))
+                #elif args.record_state:
+                record_state_file = None
+                if args.record_state:
                     ext = Path(args.record_state).suffix
-                    recorder = remote.RayStateRecorder.remote(args.record_state.replace(ext, '_{:05d}{}'.format(i, ext)))
+                    record_state_file = args.record_state.replace(ext, '_{:05d}{}'.format(i, ext))
+                    
+                recorder = remote.RayStateRecorder.remote(record_state_file)
+
                 result = matches[i % args.parallel].run.remote(teams, args.num_players, args.num_frames, max_score=args.max_score,
                                         initial_ball_location=args.ball_location,
                                         initial_ball_velocity=args.ball_velocity,
+                                        training_mode=args.training_mode,
                                         record_fn=recorder)
                 results.append(result)
 
@@ -414,6 +424,35 @@ def main():
     except Exception as e:
         traceback.print_exc()
 
+    return [team._team if hasattr(team, "_team") else 'AI' for team in teams], states
+
+def main(args_local=None):
+    import argparse 
+    from os import environ
+    
+    parser = argparse.ArgumentParser(description="Play some Ice Hockey. List any number of players, odd players are in team 1, even players team 2.")
+    parser.add_argument('-r', '--record_video', help="Do you want to record a video?")
+    parser.add_argument('-s', '--record_state', help="Do you want to pickle the state?")
+    parser.add_argument('-f', '--num_frames', default=1200, type=int, help="How many steps should we play for?")
+    parser.add_argument('-p', '--num_players', default=2, type=int, help="Number of players per team")
+    parser.add_argument('-m', '--max_score', default=3, type=int, help="How many goal should we play to?")
+    parser.add_argument('-j', '--parallel', type=int, help="How many parallel process to use?")
+    parser.add_argument('--matches', default=1, type=int, help="Number of matches to run")
+    parser.add_argument('--ball_location', default=[0, 0], type=float, nargs=2, help="Initial xy location of ball")
+    parser.add_argument('--ball_velocity', default=[0, 0], type=float, nargs=2, help="Initial xy velocity of ball")
+    parser.add_argument('team1', help="Python module name or `AI` for AI players.")
+    parser.add_argument('--team2', default=None, help="Python module name or `AI` for AI players.")
+    parser.add_argument('--training_mode', default=None, type=str, help="Training mode")
+    args = parser.parse_known_args()[0]
+
+    logging.basicConfig(level=environ.get('LOGLEVEL', 'WARNING').upper())
+
+    if args_local:
+        new_dict: dict = vars(args).copy()   # start with keys and values of starting_dict
+        new_dict.update(vars(args_local))
+        args = argparse.Namespace(**new_dict)
+
+    return runner(args)        
 
 if __name__ == '__main__':    
     main()

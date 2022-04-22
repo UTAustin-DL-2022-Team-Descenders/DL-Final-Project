@@ -1,7 +1,10 @@
+# Author: Jose Rojas (jlrojas@utexas.edu)
+# Creation Date: 4/19/2022
+
 import torch
 import numpy as np
 from numpy import Inf
-from utils.base_actors import BaseActor, LinearWithTanh, LinearWithSigmoid, Agent
+from utils.base_actors import BaseActor, LinearWithTanh, LinearWithSigmoid, Agent as BaseAgent
 from utils.track import TrackFeatures
 from utils.rewards import lateral_distance_reward, lateral_distance_causal_reward, steering_angle_reward
 
@@ -32,7 +35,7 @@ class SteeringActor(BaseActor):
             return lateral_distance_reward(current_lat, next_lat)
     
     def extract_greedy_action(self, action):
-        return action.steer > 0
+        return [action.steer > 0]
 
     def select_features(self, features, features_vec):
         return features_vec
@@ -66,11 +69,11 @@ class DriftActor(BaseActor):
             return lateral_distance_causal_reward(current_lat, next_lat)        
 
     def extract_greedy_action(self, action):
-        return action.drift > 0.5
+        return [action.drift > 0.5]
 
     def select_features(self, features, features_vec):
         return features_vec
 
-class RacingAgent(Agent):
+class Agent(BaseAgent):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, features=TrackFeatures, **kwargs)
+        super().__init__(*args, extractor=TrackFeatures(), **kwargs)

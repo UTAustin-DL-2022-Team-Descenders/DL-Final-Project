@@ -1,5 +1,7 @@
-from os import path 
+from os import path
+from turtle import pu 
 import numpy as np
+from state_agent.agents.basic.action_network import load_model, save_model
 import torch
 import collections
 from .action_network import ActionNetwork, ActionNetworkTrainer, save_model, load_model
@@ -116,16 +118,34 @@ class StateAgent:
 
 class Team:
     agent_type = 'state'
-
-    def __init__(self):
+    
+    def __init__(self, model=None):
         """
           TODO: Load your agent here. Load network parameters, and other parts of our model
           We will call this function with default arguments only
         """
+        from .action_network import ActionNetwork
         self.team = None
         self.num_players = None
-        self.model = torch.jit.load(path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt'))
+        self.training_mode = None
+        if model is None:
+          try:
+            self.model = load_model()
+          except:
+            self.model = ActionNetwork()
+        else:
+          self.model = model
+    
+    def save(self):
+        save_model(self.model)
 
+    def set_training_mode(self, mode):
+        """
+        The training mode algorithm will be passed by name here.
+        This allows the agent to decide what actions to take based on the training type.
+        For example, a "reinforce" mode could use randomized actions from a policy distribution 
+        """
+        self.training_mode = mode
 
     def new_match(self, team: int, num_players: int) -> list:
         """
@@ -192,6 +212,22 @@ class Team:
           actions.append(get_action_dictionary_from_network_output(network_output))
 
         return actions
+
+    def evaluate_trajectory(self, step, trajectory):
+        # how close to the puck?    
+        if step == -1:
+          step = len(trajectory) - 1         
+        puck_locations = [get_puck_center(t['soccer_state']) for t in trajectory[step:min(step+20,len(trajectory))]]
+        puck_locations = torch.cat(puck_locations)
+        kart_locations = [get_kart_center(t['team_state'][self.team][0]) for t in trajectory[step:min(step+20,len(trajectory))]]
+        kart_locations = torch.cat(kart_locations)      
+        return torch.nn.functional.mse_loss(kart_locations, puck_locations)        
+
+    def extract_features(self, state):
+        # XXX extract the first players actions??       
+        player_states, opponent_states, soccer_state = state['team_state'][0], state['team_state'][1], state['soccer_state']
+        player_features = get_features(player_states[0], player_states[:0] + player_states[1:], opponent_states, soccer_state, self.team)
+        return player_features
 
 
 def get_features(player_state, team_state, opponent_states, puck_state, team_id):

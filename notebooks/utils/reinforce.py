@@ -1,3 +1,6 @@
+# Author: Jose Rojas (jlrojas@utexas.edu)
+# Creation Date: 4/19/2022
+
 import copy
 import torch
 import numpy as np
@@ -32,6 +35,8 @@ def reinforce(actor,
 
     slice_net = list(filter(lambda a: a != actor, actors))
 
+    proto_agent = configuration.agent(actors)
+
     for epoch in range(n_epochs):
         eps = 1e-2  
         
@@ -52,7 +57,7 @@ def reinforce(actor,
         for trajectory in trajectories:
             for i in range(len(trajectory)):
                 # Compute the features                
-                state = actor.select_features(configuration.extractor, configuration.extractor.get_feature_vector(**trajectory[i]))
+                state = actor.select_features(proto_agent.extractor, proto_agent.get_feature_vector(**trajectory[i]))
                 features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
 
         it = 0
@@ -69,7 +74,7 @@ def reinforce(actor,
 
                 reward = actor.reward(
                     action,
-                    configuration.extractor,
+                    proto_agent.extractor,
                     features[it + i],
                     features[it + min(i + T, len(trajectory)-1)]
                 )
@@ -105,9 +110,9 @@ def reinforce(actor,
             batch_features = features[batch_ids]
           
             output = action_net(batch_features, train="reinforce")
-            pi = Bernoulli(probs=output[:,0])
+            pi = Bernoulli(probs=output)
             
-            expected_log_return = (pi.log_prob(batch_actions)*batch_returns).mean()
+            expected_log_return = (pi.log_prob(batch_actions).squeeze()*batch_returns).mean()
             optim.zero_grad()
             (-expected_log_return).backward()
             optim.step()

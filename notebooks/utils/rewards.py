@@ -1,5 +1,8 @@
+# Author: Jose Rojas (jlrojas@utexas.edu)
+# Creation Date: 4/19/2022
+
 import numpy as np
-from utils.track import cart_location, get_puck_center
+from utils.track import cart_location, get_puck_center, MAX_SPEED
 
 def lateral_distance_reward(current_lat, next_lat):
     # lateral distance reward
@@ -41,23 +44,31 @@ def distance_traveled_reward(current_distance, next_distance, max=100):
 
 MAX_STEERING_ANGLE_REWARD = np.pi
 
-def steering_angle_reward(current_angle, next_angle):
+def continuous_causal_reward(current_, next_, threshold, max):
 
     reward = 0
-    # keeping angle within +/- 0.1 degrees
-    if np.abs(next_angle) > np.deg2rad(0.5):
-    
-        # is the steering angle shrinking?
-        if np.abs(next_angle) < np.abs(current_angle):
+    if np.abs(next_) > threshold:    
+        # is the shrinking?
+        if np.abs(next_) < np.abs(current_):
             # less strong reward
-            reward = MAX_STEERING_ANGLE_REWARD - np.abs(next_angle)
+            reward = max - np.abs(next_)
         else:
             # no reward
             reward = -1
     else:
         # strong reward
-        reward = MAX_STEERING_ANGLE_REWARD  
+        reward = max
+
     return reward
+
+def steering_angle_reward(current_angle, next_angle):
+    return continuous_causal_reward(current_angle, next_angle, threshold=np.deg2rad(0.5), max=MAX_STEERING_ANGLE_REWARD)
+    
+MAX_SPEED_REWARD = 3.0
+
+def speed_reward(current_speed, next_speed):
+    return continuous_causal_reward(current_speed / MAX_SPEED * MAX_SPEED_REWARD, next_speed / MAX_SPEED * MAX_SPEED_REWARD, threshold=0.5, max=MAX_SPEED_REWARD)
+
 
 class ObjectiveEvaluator:
 
