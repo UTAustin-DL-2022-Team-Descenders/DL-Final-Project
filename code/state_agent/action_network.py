@@ -16,12 +16,16 @@ class ActionNetwork(torch.nn.Module):
     class Block(torch.nn.Module):
         def __init__(self, n_input, n_output):
             super().__init__()
-            self.network = torch.nn.Linear(n_input, n_output)
+
+            self.network = torch.nn.Sequential(
+                torch.nn.Linear(n_input, n_output),
+                torch.nn.ReLU()
+            )
 
         def forward(self, x):
-            return F.relu(self.network(x))
+            return self.network(x)
 
-    def __init__(self, input_channels=INPUT_CHANNELS, hidden_layer_channels=[128], output_channels=OUTPUT_CHANNELS):
+    def __init__(self, input_channels=INPUT_CHANNELS, hidden_layer_channels=[64, 128, 256], output_channels=OUTPUT_CHANNELS):
         super().__init__()
 
         layers = []
@@ -32,26 +36,9 @@ class ActionNetwork(torch.nn.Module):
         layers.append(torch.nn.Linear(input_channels, output_channels))
 
         self.network = torch.nn.Sequential(*layers)
-
-    def save_model(self, model_name):
-        from os import path
-        model_scripted = torch.jit.script(self.network)
-        model_scripted.save(path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt'))
-
-    def load_model(self):
-        from os import path
-
-        load_path = path.join(path.dirname(path.abspath(__file__)), 'state_agent.pt')
-        try:
-            model = torch.jit.load( load_path)
-            self.network = model
-            print("loaded pre-existing state_agent ActionNetwork")
-        except FileNotFoundError as e:
-            print("couldn't find existing model in %s" % load_path)
         
     def forward(self, x):
         return self.network(x)
-        
 
 # Performs Reinforcement training for an ActionNetwork.
 # Using Deep Q Learning
@@ -69,6 +56,7 @@ class ActionNetworkTrainer:
         
         self.loss_module = torch.nn.MSELoss()
 
+    # Perform a training step using a Reinforcement algorithm
     def train_step(self, prev_state_features, action, reward, curr_state_features, done):
 
         # Skip training for very first time step
@@ -88,30 +76,61 @@ class ActionNetworkTrainer:
             reward = torch.unsqueeze(reward, 0)
             done = (done, )
 
-        # Deep Learning Q START
+        self.model.train()
+
+        ## Deep Q Learning START
         # 1: predicted Q values with current prev_state_features
-        pred = self.model(prev_state_features)
-
-        # 2: Q_new = r + y * max(next_predicted Q value) -> only do this if not done
-        target = pred.clone()
-
-        # Iterate over items in batch
-        for idx in range(len(done)):
-
-            # default Q_new is simply the reward
-            Q_new = reward[idx]
-
-            # If not done, Q_new is reward + discount_rate_gamma * <highest confidence action for current state>
-            if not done[idx]:
-                Q_new = reward[idx] + self.gamma * self.model(curr_state_features[idx])
+        pred_actions = self.model(prev_state_features)
         
-            # Set the target's action to Q_new
-            target[idx] = Q_new
+        # 2: Q_new = r + y * max(next_predicted Q value) -> only do this if not done
+        target_actions = pred_actions.clone()
+        
+        # Iterate over items in batch
+        for batch_idx in range(len(done)):
+
+            # Get predicted actions for the current state. To be used with the discount rate.
+            curr_state_pred_actions = self.model(curr_state_features[batch_idx])
+
+            for action_idx in range(len(target_actions[batch_idx])):
+        
+                # default Q_new is simply the reward
+                Q_new = reward[batch_idx]
+
+                # If not done, Q_new is reward + discount_rate_gamma * <highest confidence action for current state>
+                if not done[batch_idx]:
+                    Q_new = reward[batch_idx] + self.gamma * curr_state_pred_actions[action_idx]
+
+                # Set the target_actions's action to Q_new
+                # TODO: Still need to do some tweaking on applying Q_new to steering & acceleration of target_actions
+                if action_idx == 0: # This is for acceleration action
+                    acceleration_policy = Bernoulli(logits=Q_new)
+                    target_actions[batch_idx][action_idx] = acceleration_policy.sample()
+                if action_idx == 1: # This is the steering action
+                    steer_policy = Bernoulli(logits=Q_new*torch.sign(target_actions[batch_idx][[action_idx]]))
+                    target_actions[batch_idx][action_idx] = (steer_policy.sample()*2) - 1
+                else: # For all other (boolean) actions
+                    target_actions[batch_idx][action_idx] = Q_new
         
         self.optimizer.zero_grad()
-        loss = self.loss_module(target, pred)
+        loss = self.loss_module(target_actions, pred_actions)
         loss.backward()
-        # Deep Learning Q END
+        # Deep Q Learning END
+
+        # REINFORCE START TODO: Maybe try using this algorithm instead of Deep Q Learning
+        # forward feed features through action network and get output
+        #output = self.model(prev_state_features)
+        #
+        ## Create a steering policy from Bernoulli distribtuion of network output
+        #steer_policy = Bernoulli(probs=output[:,1])
+        #
+        ## expected log return is the log probability of the policy for the actions taken (batch_actions) times the returns we gotten.
+        ## Then take the mean
+        #expected_log_return = (steer_policy.log_prob(action[:,1] > 0)*reward).mean()
+        #self.optimizer.zero_grad()
+        #
+        ## Take the negative expected log return to call backwards
+        #(-expected_log_return).backward()
+        # REINFORCE END
 
         self.optimizer.step()
 
