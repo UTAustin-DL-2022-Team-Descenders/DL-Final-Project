@@ -3,7 +3,7 @@ from utils.base_actors import Agent
 from utils.rewards import ObjectiveEvaluator, OverallDistanceObjective, TargetDistanceObjective
 from utils.track import TrackFeatures, SoccerFeatures, three_points_on_track,cart_direction, \
     cart_lateral_distance, get_obj1_to_obj2_angle, cart_location, cart_angle, get_puck_center, \
-    cart_overall_distance
+    cart_overall_distance, cart_speed
 import torch
 import sys, os
 import pystk
@@ -87,7 +87,7 @@ class Rollout:
         controller = PlayerConfig.Controller.AI_CONTROL if is_ai else PlayerConfig.Controller.PLAYER_CONTROL
         return PlayerConfig(controller=controller, team=team_id, kart=kart)
 
-    def __call__(self, agent, extractor, n_steps=600, randomize=False, **kwargs):
+    def __call__(self, agent, n_steps=600, randomize=False, **kwargs):
         torch.set_num_threads(1)
         self.race.restart()
         self.race.step()
@@ -104,7 +104,7 @@ class Rollout:
             agent_data = self.agent_data(world_info)
 
             # Act
-            action = agent(extractor, **agent_data)
+            action = agent(**agent_data)
             agent_data['action'] = action
 
             # Take a step in the simulation
@@ -156,24 +156,29 @@ def show_video_soccer(data, fps=30):
     actions = [t['action'] for t in data]
     features = [soccer_feature_extractor.get_feature_vector(**t) for t in data]
     distances = [np.linalg.norm(get_puck_center(t['soccer_state']) - cart_location(t['kart_info'])) for t in data]
+    speeds = [cart_speed(t['kart_info']) for t in data]
 
     images = []
     map_images = []
-    for frame, action, distance, feature in zip(frames, actions, distances, features):
+    for frame, action, distance, feature, speed in zip(frames, actions, distances, features, speeds):
         img = Image.fromarray(frame)        
         image_to_edit = ImageDraw.Draw(img)        
-        image_to_edit.text((10, 10), "steering: {}".format(action.steer))         
-        image_to_edit.text((10, 20), "drift: {}".format(action.drift))         
-        image_to_edit.text((10, 30), "distance: {}".format(distance))         
-        image_to_edit.text((10, 40), "angle diff: {}".format(feature[35]))         
+        image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)))         
+        image_to_edit.text((10, 20), "speed: {}".format(speed))         
+        image_to_edit.text((10, 30), "steering: {}".format(action.steer))         
+        image_to_edit.text((10, 40), "drift: {}".format(action.drift))         
+        image_to_edit.text((10, 50), "distance: {}".format(distance))         
+        image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)))         
         images.append(np.array(img))
 
-    for img, action, distance, feature in zip(frames_map, actions, distances, features):
-        image_to_edit = ImageDraw.Draw(img)        
-        image_to_edit.text((10, 10), "steering: {}".format(action.steer), fill=(0, 0, 0))         
-        image_to_edit.text((10, 20), "drift: {}".format(action.drift), fill=(0, 0, 0))  
-        image_to_edit.text((10, 30), "distance: {}".format(distance), fill=(0, 0, 0))    
-        image_to_edit.text((10, 40), "angle diff: {}".format(feature[35]), fill=(0, 0, 0))                     
+    for img, action, distance, feature, speed in zip(frames_map, actions, distances, features, speeds):
+        image_to_edit = ImageDraw.Draw(img)    
+        image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)), fill=(0, 0, 0))
+        image_to_edit.text((10, 20), "speed: {}".format(speed), fill=(0, 0, 0))         
+        image_to_edit.text((10, 30), "steering: {}".format(action.steer), fill=(0, 0, 0))
+        image_to_edit.text((10, 40), "drift: {}".format(action.drift), fill=(0, 0, 0))  
+        image_to_edit.text((10, 50), "distance: {}".format(distance), fill=(0, 0, 0))    
+        image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)), fill=(0, 0, 0))                     
         map_images.append(np.array(img))
 
     # create map video
@@ -188,11 +193,14 @@ def show_graph(data):
 
     steer = [t['action'].steer for t in data]
     drift = [t['action'].drift for t in data]
-    fig, (steering_p, drift_p) = plt.subplots(1, 2)
+    accel = [t['action'].acceleration for t in data]
+    fig, (steering_p, drift_p, accel_p) = plt.subplots(1, 3)
     steering_p.plot(steer)
     steering_p.set_title("Steering")
     drift_p.plot(drift)
     drift_p.set_title("Drift")
+    accel_p.plot(accel)
+    accel_p.set_title("Accel")
     fig.show()
 
 def show_trajectory_histogram(trajectories, metric=cart_overall_distance, min=0, max=1000, bins=10):
@@ -211,7 +219,7 @@ def run_agent(agent, n_steps=600, rollout=viz_rollout, **kwargs):
 
 viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
 def run_soccer_agent(agent, rollout=viz_rollout_soccer, **kwargs):
-    data = ray.get(rollout.__call__.remote(agent, soccer_feature_extractor, **kwargs))
+    data = ray.get(rollout.__call__.remote(agent, **kwargs))
     show_video_soccer(data)
     show_graph(data)
     return data
@@ -225,9 +233,8 @@ def rollout_many(many_agents, mode="track", **kwargs):
         viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode=mode) for i in range(10)]
         last_mode = mode
     ray_data = []
-    extractor = track_feature_extractor if mode == "track" else soccer_feature_extractor
     for i, agent in enumerate(many_agents):
-         ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, extractor, **kwargs) )    
+         ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )    
     return ray.get(ray_data)
 
 def dummy_agent(**kwargs):
@@ -241,7 +248,6 @@ class RaceTrackReinforcementConfiguration:
 
     def __init__(self) -> None:
         self.evaluator = OverallDistanceObjective()
-        self.extractor = TrackFeatures()
         self.agent = Agent        
         
 class SoccerReinforcementConfiguration(RaceTrackReinforcementConfiguration):
@@ -250,5 +256,4 @@ class SoccerReinforcementConfiguration(RaceTrackReinforcementConfiguration):
 
     def __init__(self) -> None:
         super().__init__()
-        self.evaluator = SoccerBallDistanceObjective()
-        self.extractor = SoccerFeatures()
+        self.evaluator = SoccerBallDistanceObjective()        

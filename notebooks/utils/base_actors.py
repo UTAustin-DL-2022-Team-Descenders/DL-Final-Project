@@ -1,5 +1,6 @@
 import torch
 from torch.distributions import Bernoulli, Normal
+from functools import reduce
 import numpy as np
 import pystk
 
@@ -76,22 +77,30 @@ class BaseActor:
         pass
 
 class Agent:
-    def __init__(self, *args, train=False, **kwargs):
+    def __init__(self, *args, extractor=None, train=False, target_speed=None, **kwargs):
         self.nets = args
         self.train = train
+        self.extractor = extractor
         self.accel = kwargs['accel'] if 'accel' in kwargs else 1.0
+        self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.nets, False)
+        self.target_speed = target_speed
         self.last_output = torch.Tensor([0, 0, 0, 0, 0])        
     
-    def invoke_actor(self, actor, extractor, action, f):
-        actor(action, actor.select_features(extractor, f), train=self.train)       
+    def invoke_actor(self, actor, action, f):
+        actor(action, actor.select_features(self.extractor, f), train=self.train)       
 
-    def invoke_actors(self, extractor, action, f):
-        [self.invoke_actor(actor, extractor, action, f) for actor in self.nets]
-            
-    def __call__(self, extractor, track_info, kart_info, soccer_state=None, **kwargs):
+    def invoke_actors(self, action, f):
+        [self.invoke_actor(actor, action, f) for actor in self.nets]
+
+    def get_feature_vector(self, track_info, kart_info, soccer_state=None, **kwargs):
+        return self.extractor.get_feature_vector(track_info, kart_info, soccer_state, target_speed=self.target_speed, **kwargs)
+
+    def __call__(self, track_info, kart_info, soccer_state=None, **kwargs):
         action = pystk.Action()        
         action.acceleration = self.accel
-        f = extractor.get_feature_vector(track_info, kart_info, soccer_state=soccer_state)        
+        f = self.get_feature_vector(track_info, kart_info, soccer_state=soccer_state)
         f = torch.as_tensor(f).view(-1)
-        self.invoke_actors(extractor, action, f)        
+        self.invoke_actors(action, f) 
+        if self.use_accel:
+            action.acceleration = self.accel       
         return action

@@ -32,6 +32,8 @@ def reinforce(actor,
 
     slice_net = list(filter(lambda a: a != actor, actors))
 
+    proto_agent = configuration.agent(actors)
+
     for epoch in range(n_epochs):
         eps = 1e-2  
         
@@ -52,7 +54,7 @@ def reinforce(actor,
         for trajectory in trajectories:
             for i in range(len(trajectory)):
                 # Compute the features                
-                state = actor.select_features(configuration.extractor, configuration.extractor.get_feature_vector(**trajectory[i]))
+                state = actor.select_features(proto_agent.extractor, proto_agent.get_feature_vector(**trajectory[i]))
                 features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
 
         it = 0
@@ -69,7 +71,7 @@ def reinforce(actor,
 
                 reward = actor.reward(
                     action,
-                    configuration.extractor,
+                    proto_agent.extractor,
                     features[it + i],
                     features[it + min(i + T, len(trajectory)-1)]
                 )

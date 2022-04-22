@@ -1,6 +1,9 @@
 import numpy as np
 import torch
 
+MAX_SPEED = 23.0
+TARGET_SPEED_FEATURE = 44
+
 def three_points_on_track(distance, track):    
     distance = np.clip(distance, track.path_distance[0,0], track.path_distance[-1,1]).astype(np.float32)
     #print("Distance", distance)
@@ -51,7 +54,7 @@ def cart_front(kart_info):
 def cart_direction(kart_info):
     p = cart_location(kart_info)
     t = cart_front(kart_info)
-    d = (p - t) / np.linalg.norm(p - t)
+    d = (t - p) / np.linalg.norm(t - p)
     return d
 
 def cart_angle(kart_info):
@@ -74,14 +77,30 @@ def cart_lateral_distance(kart_info, points):
 def cart_overall_distance(kart_info, **kwargs):
     return kart_info.overall_distance
 
+def cart_velocity(kart_info):
+    return np.array(kart_info.velocity)[[0,2]]
+
+def cart_speed(kart_info):
+    # cart speed
+    vel = cart_velocity(kart_info)
+    dir = cart_direction(kart_info)
+    sign = np.sign(np.dot(vel, dir))
+    speed = np.linalg.norm(vel) * sign
+    return speed
+
+def get_target_speed_feature(features):
+    return features[TARGET_SPEED_FEATURE]
+
 class Features():
     pass
 
 class SoccerFeatures(Features):
     
     DELTA_STEERING_ANGLE = 44
+    DELTA_SPEED = 40
+    TARGET_SPEED = 39
     
-    def get_feature_vector(self, track_info, kart_info, soccer_state, absolute=False, **kwargs):
+    def get_feature_vector(self, track_info, kart_info, soccer_state, absolute=False, target_speed=0.0, **kwargs):
 
         # cart location
         p = cart_location(kart_info)
@@ -96,9 +115,14 @@ class SoccerFeatures(Features):
         steer_angle = get_obj1_to_obj2_angle(p, front)
         steer_angle_puck = get_obj1_to_obj2_angle(p, puck)
         
+        # speed
+        speed = cart_speed(kart_info)
+
         features = np.zeros(45).astype(np.float32)
 
         features[0:2] = p - puck
+        features[self.TARGET_SPEED] = target_speed
+        features[self.DELTA_SPEED] = target_speed - speed
         features[self.DELTA_STEERING_ANGLE] = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
 
         return features
@@ -109,12 +133,18 @@ class SoccerFeatures(Features):
     def select_lateral_distance(self, features):
         return 0
 
+    def select_delta_speed(self, features):
+        return features[self.DELTA_SPEED]
+
+    def select_target_speed(self, features):
+        return features[self.TARGET_SPEED]
+
 
 class TrackFeatures(Features):
     
     DELTA_STEERING_ANGLE = 44
 
-    def get_feature_vector(self, track_info, kart_info, absolute=False, **kwargs):
+    def get_feature_vector(self, track_info, kart_info, absolute=False, target_speed=0.0, **kwargs):
     
         # generates 5, 3, 2 tensor that contains the track geometry points x units down the track
         points = [three_points_on_track(kart_info.distance_down_track + d, track_info) for d in [0,5,10,15,20]]
