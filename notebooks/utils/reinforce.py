@@ -1,3 +1,6 @@
+# Author: Jose Rojas (jlrojas@utexas.edu)
+# Creation Date: 4/19/2022
+
 import copy
 import torch
 import numpy as np

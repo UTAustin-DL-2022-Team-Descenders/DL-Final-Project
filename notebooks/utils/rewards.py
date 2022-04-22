@@ -1,3 +1,6 @@
+# Author: Jose Rojas (jlrojas@utexas.edu)
+# Creation Date: 4/19/2022
+
 import numpy as np
 from utils.track import cart_location, get_puck_center, MAX_SPEED
 
