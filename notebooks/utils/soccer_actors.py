@@ -133,12 +133,17 @@ class SpeedActor(BaseActor):
                 reward[1] = -1 # the break should not be enabled
 
         if next_target_speed < 0.0:
+            
             # the car should be going in reverse
             if accel != 0:
                 reward[0] = -1 # acceleration should be 0
+            else:
+                reward[0] = 3
 
             if action.brake == False:
                 reward[1] = -1 # brake should be True to move backwards
+            else:
+                reward[1] = 3
 
         elif next_speed == 0:
 
