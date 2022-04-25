@@ -241,7 +241,7 @@ class MultiRecorder(BaseRecorder):
 
     @property
     def states(self) -> list:        
-        for r in self._r:
+        for r in self._r:                        
             if hasattr(r, "states"):
                 return r.states
         return []
@@ -299,13 +299,14 @@ class StateRecorder(BaseRecorder):
         if hasattr(self, '_f'):            
             dump(dict(data), self._f)
             self._f.flush()
-        else:
-            self.states.append(data)
-
+        self.states.append(data)
+        
     def __del__(self):
         if hasattr(self, '_f'):
             self._f.close()
 
+    def get_states(self):
+        return self.states
 
 if __name__ == "__main__":
     main()
