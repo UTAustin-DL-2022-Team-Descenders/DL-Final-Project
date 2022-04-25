@@ -28,6 +28,7 @@ try:
 
     get = ray.get
     init = ray.init
+    shutdown = ray.shutdown
 
 except ImportError:
     ray = None
