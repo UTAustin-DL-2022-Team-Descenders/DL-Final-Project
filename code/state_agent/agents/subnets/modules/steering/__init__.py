@@ -30,3 +30,7 @@ class Team(BaseTeam):
 
     def get_training_actor(self):
         return self.training_actor
+
+    def set_training_mode(self, mode):
+        print("Training mode", mode)
+        self.agent.train = mode != None        

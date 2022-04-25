@@ -17,6 +17,13 @@ class Action:
         self.brake = False
         self.fire = False
 
+    def detach(self):
+        self.acceleration = float(self.acceleration.detach().numpy()) if hasattr(self.acceleration, "detach") else self.acceleration
+        self.steer = float(self.steer.detach().numpy()) if hasattr(self.steer, "detach") else self.steer
+        self.drift = bool(self.drift.detach().numpy()) if hasattr(self.drift, "detach") else self.drift
+        self.nitro = bool(self.nitro.detach().numpy()) if hasattr(self.nitro, "detach") else self.nitro
+        self.brake = bool(self.brake.detach().numpy()) if hasattr(self.brake, "detach") else self.brake
+        self.fire = bool(self.fire.detach().numpy()) if hasattr(self.fire, "detach") else self.fire
 class BaseAgent:
     def __init__(self, *args, extractor=None, train=False, target_speed=None, **kwargs):
         self.nets = args
@@ -36,7 +43,7 @@ class BaseAgent:
     def get_feature_vector(self, kart_info, soccer_state, **kwargs):
         return self.extractor.get_feature_vector(kart_info, soccer_state, target_speed=self.target_speed, **kwargs)
 
-    def __call__(self, player_num, kart_info, soccer_state, **kwargs):
+    def __call__(self, kart_info, soccer_state, **kwargs):
         action = Action()
         action.acceleration = self.accel
 
@@ -45,6 +52,8 @@ class BaseAgent:
         self.invoke_actors(action, f) 
         if self.use_accel:
             action.acceleration = self.accel       
+
+        action.detach()
         return action
 
 class Agent(BaseAgent):
@@ -124,7 +133,7 @@ class BaseTeam:
         for player_num, player_state in enumerate(player_states):
 
           # Get network output by forward feeding features through the model
-          output = self.agent(player_num, DictObj(player_state['kart']), DictObj(soccer_state))
+          output = self.agent(DictObj(player_state['kart']), DictObj(soccer_state))
 
           # add action dictionary to actions list
           actions.append(dict(vars(output)))

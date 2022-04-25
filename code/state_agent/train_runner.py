@@ -29,9 +29,7 @@ def train(trainer_module, epoch, context=None):
 
 def validate(trainer_module, epoch, context=None, teams=[]):
     # run validation phase
-    teams, trajectories = runner_main(Namespace(
-        training_mode=trainer_module.__class__.__name__
-    ))
+    teams, trajectories = runner_main()
     
     # run the validation
     return trainer_module.validate(

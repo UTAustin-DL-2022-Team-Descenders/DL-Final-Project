@@ -6,7 +6,8 @@ import torch
 import numpy as np
 from torch.distributions import Bernoulli, Normal
 from state_agent.agents.subnets.rewards import SoccerBallDistanceObjective
-from state_agent.agents.subnets.utils import DictObj
+from state_agent.agents.subnets.utils import DictObj, rollout_many
+from state_agent.agents.subnets.agents import Agent
 
 def collect_dist(trajectories):
     results = []
@@ -20,39 +21,96 @@ def raw_trajectory_to_player_trajectory(t, player_team, player_on_team):
         "soccer_state": DictObj(t['soccer_state'])
     }
 
+def get_player_action_tourney(t, player_id):
+    return DictObj(t['actions'][player_id])
+
+
+def raw_trajectory(t, player_team, player_on_team):
+    return t
+
+def get_player_action(t, player_id):
+    return t['action']
 class SoccerReinforcementConfiguration:
 
     mode = "soccer"
 
     def __init__(self) -> None:
         super().__init__()        
-        self.evaluator = SoccerBallDistanceObjective()        
+        self.evaluator = SoccerBallDistanceObjective() 
+        self.extract_trajectory = raw_trajectory
+        self.extract_action = get_player_action
+        self.agent = Agent()       
+
+class TournamentReinforcementConfiguration:
+
+    mode = "soccer"
+
+    def __init__(self) -> None:
+        super().__init__()        
+        self.evaluator = SoccerBallDistanceObjective() 
+        self.extract_trajectory = raw_trajectory_to_player_trajectory
+        self.extract_action = get_player_action_tourney
+        self.agent = Agent()       
+
 
 configuration = SoccerReinforcementConfiguration()
 
-def reinforce(actor, 
-              agent,  
-              configuration: SoccerReinforcementConfiguration = configuration,              
-                n_epochs = 10,            
-                n_iterations =100,                         
-                batch_size = 128,
-                T = 20
-):
+class Context():
     
+    def __init__(self) -> None:
+        self.score = None
+        self.action_net = None
+
+def reinforce(
+            actor, 
+            actors,  
+            configuration = configuration,              
+            n_epochs = 10,
+            n_trajectories = 100,
+            n_iterations =100,
+            n_validations = 20,
+            n_steps=600,
+            batch_size = 128,
+            T = 20
+):
+        
+    slice_net = list(filter(lambda a: a != actor, actors))
+    context = None
+
     for epoch in range(n_epochs):
-        reinforce_epoch(
-            agent, actor, 
+
+        # perform the rollouts 
+        agents = [configuration.agent(*slice_net, actor, train=True) for i in range(n_trajectories)]
+        trajectories = rollout_many(agents, mode=configuration.mode, randomize=True, n_steps=n_steps)
+        
+        context = reinforce_epoch(
+            agents, 
+            actor, 
             trajectories,
             epoch=epoch,
             configuration=configuration,             
             batch_size=batch_size,
             iterations=n_iterations,
+            context=context
         )
 
-    return best_action_net
+        # perform the validation rollouts
+        validation_agents = [configuration.agent(*slice_net, actor) for i in range(n_validations)]
+        validation_trajectories = rollout_many(validation_agents, mode=configuration.mode, n_steps=n_steps)
+        
+        context, updated = validate_epoch(
+            actor,
+            validation_trajectories,
+            configuration=configuration,
+            epoch=epoch,            
+            context=context
+        )
+
+
+    return context.action_net if context else None
 
 def reinforce_epoch(
-    agent,
+    agents,
     actor,    
     trajectories,  
     epoch=0,        
@@ -90,23 +148,25 @@ def reinforce_epoch(
     player_id = 0 # hard-coded for now
     
     # state features
-    for trajectory in trajectories:
+    for num, trajectory in enumerate(trajectories):
+        agent = agents[num % len(trajectories)] 
         for i in range(len(trajectory)):
             # Compute the features         
-            feature_dict = raw_trajectory_to_player_trajectory(trajectory[i], player_team, player_on_team)
+            feature_dict = configuration.extract_trajectory(trajectory[i], player_team, player_on_team)
             state = actor.select_features(agent.extractor, agent.get_feature_vector(**feature_dict))
             features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
 
     it = 0
 
-    for trajectory in trajectories:
+    for num, trajectory in enumerate(trajectories):
 
         loss = []
+        agent = agents[num % len(trajectories)] 
 
         for i in range(len(trajectory)):                
             # Compute the returns
 
-            action = DictObj(trajectory[i]['actions'][player_id])
+            action = configuration.extract_action(trajectory[i], player_id)
 
             reward = actor.reward(
                 action,
@@ -157,40 +217,33 @@ def reinforce_epoch(
 
     action_net.eval()
         
-    return context if context else {
-        "score": None
-    }
+    return context if context else Context()
 
-def validate_epoch( 
-    team,
-    agent,   
+def validate_epoch(     
     actor,
     trajectories,
     epoch=0,
-    evaluator=configuration.evaluator, 
+    configuration=configuration, 
     context=None):
 
-    best_score = context["score"] if context is not None else None
-    context = {
-        "action_net":None,
-        "score": None
-    } if context is None else context
+    updated = False
+    best_score = context.score if context is not None else None
+    context = Context() if context is None else context
 
     # compute mean performance
     player_team = 0 # XXX
     player_on_team = 0 # XXX
-    player_trajectories = [[raw_trajectory_to_player_trajectory(t, player_team, player_on_team) for t in trajectory] for trajectory in trajectories]
-    score = evaluator.reduce(player_trajectories)
+    player_trajectories = [[configuration.extract_trajectory(t, player_team, player_on_team) for t in trajectory] for trajectory in trajectories]
+    score = configuration.evaluator.reduce(player_trajectories)
 
     print('epoch = %d dist = %s, best_dist = %s '%(epoch, score, best_score))
     
-    if best_score is None or evaluator.is_better_than(score, best_score):
-        context['action_net'] = copy.deepcopy(actor.action_net)
-        context['score'] = score
-        team.save()
+    if best_score is None or configuration.evaluator.is_better_than(score, best_score):
+        context.action_net = copy.deepcopy(actor.action_net)
+        context.score = score
+        updated = True
         
-
-    return context
+    return context, updated
                      
 
 def train(
@@ -207,4 +260,6 @@ def validate(
     trajectories,
     context=None
 ):
-    return validate_epoch(team, team.agent, team.get_training_actor(), trajectories, epoch=epoch, context=context)
+    context, updated = validate_epoch(team.get_training_actor(), trajectories, epoch=epoch, context=context)
+    if updated:
+        team.save()

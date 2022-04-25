@@ -103,11 +103,16 @@ class Rollout:
 
             # Act
             action = agent(**agent_data)
+
+            game_action = pystk.Action(
+                **dict(vars(action))
+            )
+
             agent_data['action'] = action
 
             # Take a step in the simulation
             for it in range(self.frame_skip):
-                self.race.step(action)
+                self.race.step(game_action)
 
             # Save all the relevant data
             data.append(agent_data)
@@ -133,7 +138,7 @@ def show_video_soccer(data, fps=30):
         image_to_edit = ImageDraw.Draw(img)        
         image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)))         
         image_to_edit.text((10, 20), "speed: {}".format(speed))         
-        image_to_edit.text((10, 30), "steering: {}".format(action.steer))         
+        image_to_edit.text((10, 30), "steering: {}".format(float(action.steer)))         
         image_to_edit.text((10, 40), "drift: {}".format(action.drift))         
         image_to_edit.text((10, 50), "distance: {}".format(distance))         
         image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)))         
@@ -143,7 +148,7 @@ def show_video_soccer(data, fps=30):
         image_to_edit = ImageDraw.Draw(img)    
         image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)), fill=(0, 0, 0))
         image_to_edit.text((10, 20), "speed: {}".format(speed), fill=(0, 0, 0))         
-        image_to_edit.text((10, 30), "steering: {}".format(action.steer), fill=(0, 0, 0))
+        image_to_edit.text((10, 30), "steering: {}".format(float(action.steer)), fill=(0, 0, 0))
         image_to_edit.text((10, 40), "drift: {}".format(action.drift), fill=(0, 0, 0))  
         image_to_edit.text((10, 50), "distance: {}".format(distance), fill=(0, 0, 0))    
         image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)), fill=(0, 0, 0))                     
@@ -192,9 +197,8 @@ def run_soccer_agent(agent, rollout=viz_rollout_soccer, **kwargs):
     show_graph(data)
     return data
 
-viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(10)]
+viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
 def rollout_many(many_agents, **kwargs):    
-    global viz_rollouts, last_mode
     ray_data = []
     for i, agent in enumerate(many_agents):
          ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )    

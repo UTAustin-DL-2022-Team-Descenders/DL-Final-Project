@@ -118,8 +118,7 @@ class TargetDistanceObjective(ObjectiveEvaluator):
         return total
         
     def reduce(self, trajectories):
-        results = [self.calculate_trajectory_score(trajectory) for trajectory in trajectories]    
-        print(results)    
+        results = [self.calculate_trajectory_score(trajectory) for trajectory in trajectories]               
         return np.min(np.array(results)), np.max(np.array(results)), np.median(np.array(results))
 
     def is_better_than(self, a, b):
