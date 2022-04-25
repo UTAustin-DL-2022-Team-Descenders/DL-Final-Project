@@ -2,6 +2,7 @@
 # Creation Date: 4/23/2022
 
 from argparse import Namespace
+from typing import Union
 import torch
 from functools import reduce
 from .features import SoccerFeatures
@@ -10,12 +11,12 @@ from .utils import DictObj
 class Action:
     
     def __init__(self):
-        self.acceleration = 0.0
-        self.steer = 0.0
-        self.drift = False
-        self.nitro = False
-        self.brake = False
-        self.fire = False
+        self.acceleration = torch.Tensor(0.0)
+        self.steer = torch.Tensor(0.0)
+        self.drift = torch.Tensor(False)
+        self.nitro = torch.Tensor(False)
+        self.brake = torch.Tensor(False)
+        self.fire = torch.Tensor(False)
 
     def detach(self):
         self.acceleration = float(self.acceleration.detach().numpy()) if hasattr(self.acceleration, "detach") else self.acceleration

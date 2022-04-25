@@ -3,8 +3,6 @@
 
 import torch
 from torch.distributions import Bernoulli, Normal
-import numpy as np
-import pystk
 
 def new_action_net(n_outputs=1, type="linear_tanh"):
     if type == "linear_sigmoid":
@@ -15,6 +13,8 @@ def new_action_net(n_outputs=1, type="linear_tanh"):
         raise Exception("Unknown action net")
         
 class BaseNetwork(torch.nn.Module):
+
+    net: torch.nn.Module
 
     def __init__(self) -> None:
         super().__init__()        
