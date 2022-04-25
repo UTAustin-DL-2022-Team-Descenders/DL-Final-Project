@@ -23,15 +23,15 @@ class SteeringActor(BaseActor):
         return action
 
     def reward(self, action, extractor, selected_features_curr, selected_features_next):
-        [current_angle] = selected_features_curr
-        [next_angle] = selected_features_next
+        current_angle = selected_features_curr
+        next_angle = selected_features_next
         return steering_angle_reward(current_angle, next_angle)        
     
     def extract_greedy_action(self, action):
         return [action.steer > 0]
 
     def select_features(self, features, features_vec):
-        delta_steering_angle = features.select_delta_steering(features_vec)        
+        delta_steering_angle = features.select_delta_steering(features_vec)
         return torch.Tensor([
             delta_steering_angle
         ])

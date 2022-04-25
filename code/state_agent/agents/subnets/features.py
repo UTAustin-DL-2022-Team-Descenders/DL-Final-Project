@@ -27,7 +27,7 @@ def limit_period(angle):
 
 def get_obj1_to_obj2_angle_difference(object1_angle, object2_angle):
   angle_difference = (object1_angle - object2_angle) / np.pi
-  return angle_difference
+  return limit_period(angle_difference)
 
 def cart_location(kart_info):
     # cart location
@@ -68,7 +68,9 @@ class Features():
 class SoccerFeatures(Features):
     
     DELTA_STEERING_ANGLE = 44
-    DELTA_SPEED = 40
+    STEERING_ANGLE = 43
+    TARGET_ANGLE = 42
+    DELTA_SPEED = 40    
     TARGET_SPEED = 39
     
     def get_feature_vector(self, kart_info, soccer_state, absolute=False, target_speed=0.0, **kwargs):
@@ -92,11 +94,19 @@ class SoccerFeatures(Features):
         features = np.zeros(45).astype(np.float32)
 
         features[0:2] = p - puck
+        features[self.STEERING_ANGLE] = steer_angle
+        features[self.TARGET_ANGLE] = steer_angle_puck
         features[self.TARGET_SPEED] = target_speed
         features[self.DELTA_SPEED] = target_speed - speed
         features[self.DELTA_STEERING_ANGLE] = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
 
         return features
+
+    def select_steering_angle(self, features):        
+        return features[self.STEERING_ANGLE]
+
+    def select_target_angle(self, features):        
+        return features[self.TARGET_ANGLE]
 
     def select_delta_steering(self, features):        
         return features[self.DELTA_STEERING_ANGLE]

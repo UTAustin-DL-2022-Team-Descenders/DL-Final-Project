@@ -62,7 +62,14 @@ def continuous_causal_reward(current_, next_, threshold, max):
     return reward
 
 def steering_angle_reward(current_angle, next_angle):
-    return continuous_causal_reward(current_angle, next_angle, threshold=np.deg2rad(0.5), max=MAX_STEERING_ANGLE_REWARD)
+
+    (c_delta) = current_angle
+    (n_delta) = next_angle
+    multiplier = 1
+    
+    return multiplier * continuous_causal_reward(c_delta, n_delta, threshold=np.deg2rad(0.5), max=MAX_STEERING_ANGLE_REWARD)
+
+    
     
 MAX_SPEED_REWARD = 3.0
 
