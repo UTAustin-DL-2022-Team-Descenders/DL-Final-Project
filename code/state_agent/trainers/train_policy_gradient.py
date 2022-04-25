@@ -206,9 +206,9 @@ def reinforce_epoch(
         batch_features = features[batch_ids]
         
         output = action_net(batch_features)
-        pi = Bernoulli(probs=output)
+        log_prob = actor.log_prob(output, actions=batch_actions)
         
-        expected_log_return = (pi.log_prob(batch_actions).squeeze()*batch_returns).mean()
+        expected_log_return = (log_prob.squeeze()*batch_returns).mean()
         optim.zero_grad()
         (-expected_log_return).backward()
         optim.step()

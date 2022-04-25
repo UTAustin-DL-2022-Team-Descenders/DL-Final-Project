@@ -10,14 +10,14 @@ class SteeringActor(BaseActor):
     def __init__(self, action_net=None, train=None, **kwargs):
         # Steering action_net
         # inputs: delta steering angle
-        super().__init__(LinearWithTanh(1, 1) if action_net is None else action_net, train=train)
+        super().__init__(LinearWithTanh(1, 1) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
     def __call__(self, action, f, train=False, **kwargs):        
         output = self.action_net(f)
         if self.train is not None:
             train = self.train
         if train:                        
-            action.steer = self.sample_bernoulli(output) * 2 - 1
+            action.steer = self.sample(output) * 2 - 1
         else:
             action.steer = output[0] # raw output
         return action
@@ -41,14 +41,14 @@ class DriftActor(BaseActor):
     def __init__(self, action_net=None, train=None, **kwargs):
         # Steering action_net
         # inputs: delta steering angle, delta lateral distance        
-        super().__init__(LinearWithSigmoid(2, 1) if action_net is None else action_net, train=train)
+        super().__init__(LinearWithSigmoid(2, 1) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
     def __call__(self, action, f, train=True, **kwargs):        
         output = self.action_net(f)
         if self.train is not None:
             train = self.train
         if train:            
-            action.drift = self.sample_bernoulli(output) > 0.5
+            action.drift = self.sample(output) > 0.5
         else:
             # drift is a binary value
             action.drift = output[0] > 0.5
@@ -81,14 +81,14 @@ class SpeedActor(BaseActor):
         # outputs:
         #   acceleration (0-1)
         #   brake (boolean)
-        super().__init__(LinearWithSigmoid(3, 2) if action_net is None else action_net, train=train, **kwargs)        
+        super().__init__(LinearWithSigmoid(3, 2) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)        
 
     def __call__(self, action, f, train=True, **kwargs):        
         output = self.action_net(f) 
         if self.train is not None:
             train = self.train
         if train:
-            sample = self.sample_bernoulli(output)
+            sample = self.sample(output)
             action.acceleration = sample[0]
             action.brake = sample[1] > 0.5
         else:            

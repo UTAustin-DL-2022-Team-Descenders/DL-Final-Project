@@ -59,19 +59,40 @@ class LinearWithTanh(LinearNetwork):
 
 class BaseActor:
 
-    def __init__(self, action_net, train=None, reward_type=None):
+    def __init__(self, action_net, train=None, reward_type=None, sample_type=None):
         self.action_net = action_net.cpu().eval()
         self.train = train
         self.reward_type = reward_type
+        self.sample_type = sample_type
 
     def copy(self, action_net):
         return self.__class__(action_net, train=self.train, reward_type=self.reward_type)
+
+    def sample(self, *args):
+        if self.sample_type == "bernoulli":
+            return self.sample_bernoulli(*args)
+        elif self.sample_type == "normal":
+            return self.sample_normal(*args)
+        raise Exception("Unknown sample type")
+
+    def log_prob(self, *args, actions):
+        if self.sample_type == "bernoulli":
+            dist = Bernoulli(probs=args[0])
+            return dist.log_prob(actions)
+        elif self.sample_type == "normal":
+            dist = Normal(*args)
+            return dist.log_prob(actions)
+        raise Exception("Unknown sample type")
 
     def sample_bernoulli(self, output):
         if self.action_net.activation == "Tanh" or \
            self.action_net.activation == "Hardtanh":
             output = (output + 1) / 2
         output = Bernoulli(probs=output).sample()
+        return output
+
+    def sample_normal(self, location, scale):
+        output = Normal(loc=location, scale=scale).sample()
         return output
 
     def select_features(self, state_features):
