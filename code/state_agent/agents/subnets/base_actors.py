@@ -14,8 +14,6 @@ def new_action_net(n_outputs=1, type="linear_tanh"):
         
 class BaseNetwork(torch.nn.Module):
 
-    net: torch.nn.Module
-
     def __init__(self) -> None:
         super().__init__()        
 
