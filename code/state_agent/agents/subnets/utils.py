@@ -20,8 +20,7 @@ font = ImageFont.load_default()
 @ray.remote
 class Rollout:
     def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1, 
-                 mode="track",
-                 ball_location=None, ball_velocity=None):
+                 mode="track"):
         # Init supertuxkart
         if not render:
             config = pystk.GraphicsConfig.none()
@@ -37,9 +36,7 @@ class Rollout:
         self.render = render
         self.track_info = None  
         self.mode = mode   
-        self.ball_location=ball_location
-        self.ball_velocity=ball_velocity   
-
+        
         self.create_race(track)
     
     def create_race(self, track):
@@ -53,15 +50,17 @@ class Rollout:
         self.race = pystk.Race(race_config)
         self.race.start()  
 
-    def initialize_state(self, world_info, randomize=False):
+    def initialize_state(self, world_info, randomize=False, ball_location=None, ball_velocity=None, player_location=None, **kwargs):
         if self.mode == "track":
             self.track_info = track_info = pystk.Track()
             track_info.update()
         elif self.mode == "soccer":
-            ball_location = self.ball_location if self.ball_location else ([0, 0] if randomize == False else np.random.normal(loc=0.0, scale=24.0, size=(2)))
-            ball_velocity = self.ball_velocity if self.ball_velocity else [0, 0]
+            ball_location = ball_location if ball_location else ([0, 0] if randomize == False else np.random.normal(loc=0.0, scale=24.0, size=(2)))
+            ball_velocity = ball_velocity if ball_velocity else [0, 0]
             world_info.set_ball_location((ball_location[0], 1, ball_location[1]),
                                         (ball_velocity[0], 0, ball_velocity[1]))
+            if player_location:
+                world_info.set_kart_location(0, player_location, [0, 0, 0, 1.0], 0)
 
     def agent_data(self, world_info):
         # Gather world information
@@ -85,14 +84,14 @@ class Rollout:
         controller = PlayerConfig.Controller.AI_CONTROL if is_ai else PlayerConfig.Controller.PLAYER_CONTROL
         return PlayerConfig(controller=controller, team=team_id, kart=kart)
 
-    def __call__(self, agent, n_steps=600, randomize=False, **kwargs):
+    def __call__(self, agent, n_steps=600, **kwargs):
         torch.set_num_threads(1)
         self.race.restart()
         self.race.step()
         data = []
 
         world_info = pystk.WorldState()    
-        self.initialize_state(world_info, randomize=randomize)
+        self.initialize_state(world_info, **kwargs)
         world_info.update()
     
         for i in range(n_steps // self.frame_skip):            
