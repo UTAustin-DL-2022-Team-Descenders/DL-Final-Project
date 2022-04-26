@@ -12,7 +12,7 @@ import torch.nn.functional as F
 DEBUG_EN = False
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 MAX_SCORE = 3
-GOAL_LINE_Y_BUFFER = 2
+GOAL_LINE_Y_BUFFER = 3
 
 # Hyperparameters
 OBJS_TOUCHING_DISTANCE_THRESHOLD = 4 # Pixel distance threshold to denote objects are touching
@@ -30,7 +30,7 @@ class StateAgent:
 
   def __init__(self, input_channels=STATE_CHANNELS, output_channels=ACTION_CHANNELS, 
                 discount_rate=DISCOUNT_RATE_GAMMA, load_existing_model=False, optimizer="ADAM", lr=0.001,
-                logger=None, player_num=0):
+                logger=None, player_num=0, noise_std=0.01):
 
     # number of games played
     self.n_games = 0 
@@ -42,7 +42,7 @@ class StateAgent:
     self.memory = collections.deque(maxlen=StateAgent.MAX_MEMORY)
 
     # Noise to add to ActionNetwork output 
-    self.noise = NormalNoise(output_channels)
+    self.noise = OUActionNoise(mean=np.zeros(1), std_deviation=float(noise_std) * np.ones(1))
 
     # Try loading an existing action_net to continue training it
     if load_existing_model:
@@ -116,6 +116,8 @@ class StateAgent:
   def get_action_tensor(self, state_features):
     
     epsilon = ACTION_TENSOR_EPSILON_THRESHOLD - self.n_games
+    actions_min_bounds = torch.tensor((0, -1, 0, 0, 0, 0), device=DEVICE) # Minimum values of each action
+    actions_max_bounds = torch.tensor((1, 1, 1, 1, 1, 1), device=DEVICE) # maximum values of each action
 
     # Either take a random action (exploration)
     # or prediction action from the action_net (exploitation).
@@ -125,14 +127,21 @@ class StateAgent:
     state_features = torch.unsqueeze(state_features, 0)
     action_tensor = self.action_net(state_features).detach()
 
-    if random.randint(0, 150) < epsilon:
+    action_tensor = torch.squeeze(action_tensor, 0)
+
+    #noise = self.noise()
+    #action_tensor = action_tensor + torch.as_tensor(noise, dtype=torch.float32, device=DEVICE)
+    #action_tensor = torch.clamp(action_tensor, actions_min_bounds, actions_max_bounds)
+
+    #if random.randint(0, 150) < epsilon:
       
-      action_tensor[0] = self.noise.sample(action_tensor[0])
+      #action_tensor[0] = self.noise.sample(action_tensor[0])
       #actions_min_bounds = torch.tensor((0, -1, 0, 0, 0, 0), device=DEVICE) # Minimum values of each action
       #actions_max_bounds = torch.tensor((1, 1, 1, 1, 1, 1), device=DEVICE) # maximum values of each action
       #action_tensor[0] += torch.tensor(self.ou_noise.sample(), device=DEVICE)
       #action_tensor[0] = torch.clamp(action_tensor[0], actions_min_bounds, actions_max_bounds)
 
+    print("get_action_tensor - ", action_tensor)
     return action_tensor
   
 
@@ -175,6 +184,32 @@ class OUNoise:
         self.state = x + dx
         return self.state
 
+class OUActionNoise:
+    def __init__(self, mean, std_deviation, theta=0.15, dt=1e-2, x_initial=None):
+        self.theta = theta
+        self.mean = mean
+        self.std_dev = std_deviation
+        self.dt = dt
+        self.x_initial = x_initial
+        self.reset()
+
+    def __call__(self):
+        # Formula taken from https://www.wikipedia.org/wiki/Ornstein-Uhlenbeck_process.
+        x = (
+            self.x_prev
+            + self.theta * (self.mean - self.x_prev) * self.dt
+            + self.std_dev * np.sqrt(self.dt) * np.random.normal(size=self.mean.shape)
+        )
+        # Store x into x_prev
+        # Makes next noise dependent on current one
+        self.x_prev = x
+        return x
+
+    def reset(self):
+        if self.x_initial is not None:
+            self.x_prev = self.x_initial
+        else:
+            self.x_prev = np.zeros_like(self.mean)
 class NormalNoise:
 
   def __init__(self, size, mean=[0.5, 0, 0.5, 0.5, 0.5, 0.5], std=[0.2, 0.2, 0.2, 0.2, 0.2, 0.2], action_mins=[0, -1, 0, 0, 0, 0], action_maxs=[1, 1, 1, 1, 1, 1]):

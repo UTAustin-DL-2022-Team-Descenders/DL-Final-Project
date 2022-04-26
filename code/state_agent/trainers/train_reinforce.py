@@ -26,6 +26,7 @@ def main():
     parser.add_argument('-to', '--training_opponent', type=str, default="random", choices=["random", "state_agent"]+TRAINING_OPPONENT_LIST, help="Training opponent for state_agent per epoch. Defaults to random opponent")
     parser.add_argument('-at', '--agent_team', type=int, default=0, choices=[0,1,2], help="Team number for State agent per epoch. Defaults to 0 that will randomize team number per epoch")
     parser.add_argument('-rv', '--record_video_cadence', type=int, default=10, help="Number of games between recording video while training")
+    parser.add_argument('-std', '--noise_std', type=int, default=0.01, help="Standard Deviation for normalized exploration noise")
 
     args = parser.parse_args()
 
@@ -48,7 +49,8 @@ def train_reinforce(args):
                         lr=args.learning_rate,
                         discount_rate=args.discount_rate,
                         logger=train_logger,
-                        player_num=0
+                        player_num=0,
+                        noise_std=args.noise_std
                         )
    
 

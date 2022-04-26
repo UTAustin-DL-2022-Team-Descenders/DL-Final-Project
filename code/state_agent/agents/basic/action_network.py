@@ -2,6 +2,7 @@ from argparse import Action
 import torch
 import torch.nn.functional as F
 from torch.distributions import Bernoulli
+import numpy as np
 
 # Assumes extract_features returns 31 channels
 INPUT_CHANNELS = 31
@@ -20,57 +21,57 @@ class ActionNetwork(torch.nn.Module):
         def __init__(self, n_input, n_output):
             super().__init__()
 
-            self.network = torch.nn.Sequential(
-                torch.nn.Linear(n_input, n_output),
-                torch.nn.BatchNorm1d(n_output),
-                torch.nn.ReLU()
-            )
+            self.linear = torch.nn.Linear(n_input, n_output)
+            self.bn =  torch.nn.BatchNorm1d(n_output)
 
         def forward(self, x):
-            return self.network(x)
+            return F.relu(self.bn(self.linear(x)))
 
     def __init__(self, input_channels=INPUT_CHANNELS, hidden_layer_channels=[HIDDEN_LAYER_1_SIZE, HIDDEN_LAYER_2_SIZE], output_channels=OUTPUT_CHANNELS):
         super().__init__()
 
         layers = []
         for layer_channels in hidden_layer_channels:
-            layers.append(ActionNetwork.Block(input_channels, layer_channels))
+
+            layer = ActionNetwork.Block(input_channels, layer_channels)
+            init_fanin(layer.linear.weight)
+            layers.append(layer)
+
             input_channels = layer_channels
 
         self.main_network = torch.nn.Sequential(*layers)
 
-        self.acceleration_net = torch.nn.Sequential(torch.nn.Linear(input_channels, 1),
-                                                    torch.nn.Sigmoid())
+        self.acceleration_net = torch.nn.Linear(input_channels, 1)
+        init_uniform(self.acceleration_net, -3e-3, 3e-3)
 
-        self.steering_net = torch.nn.Sequential(torch.nn.Linear(input_channels, 1),
-                                                    torch.nn.Tanh())
+        self.steering_net = torch.nn.Linear(input_channels, 1)
+        init_uniform(self.steering_net, -3e-3, 3e-3)
 
-        self.brake_net = torch.nn.Sequential(torch.nn.Linear(input_channels, 1),
-                                                    torch.nn.Sigmoid())
+        self.brake_net = torch.nn.Linear(input_channels, 1)
+        init_uniform(self.brake_net, -3e-3, 3e-3)
 
-        self.drift_net = torch.nn.Sequential(torch.nn.Linear(input_channels, 1),
-                                                    torch.nn.Sigmoid())
+        self.drift_net = torch.nn.Linear(input_channels, 1)
+        init_uniform(self.drift_net, -3e-3, 3e-3)
 
-        self.fire_net = torch.nn.Sequential(torch.nn.Linear(input_channels, 1),
-                                                    torch.nn.Sigmoid())
+        self.fire_net = torch.nn.Linear(input_channels, 1)
+        init_uniform(self.fire_net, -3e-3, 3e-3)
 
-        self.nitro_net = torch.nn.Sequential(torch.nn.Linear(input_channels, 1),
-                                                    torch.nn.Sigmoid())
+        self.nitro_net = torch.nn.Linear(input_channels, 1)
+        init_uniform(self.nitro_net, -3e-3, 3e-3)
 
         #layers.append(torch.nn.Linear(input_channels, output_channels))
         #self.network = torch.nn.Sequential(*layers)
 
-        
     def forward(self, x):
 
         x = self.main_network(x)
         
-        acceleration = self.acceleration_net(x)
-        steering = self.steering_net(x)
-        brake = self.brake_net(x)
-        drift = self.drift_net(x)
-        fire = self.fire_net(x)
-        nitro = self.nitro_net(x)
+        acceleration = torch.sigmoid(self.acceleration_net(x))
+        steering = torch.tanh(self.steering_net(x))
+        brake = torch.sigmoid(self.brake_net(x))
+        drift = torch.sigmoid(self.drift_net(x))
+        fire = torch.sigmoid(self.fire_net(x))
+        nitro = torch.sigmoid(self.nitro_net(x))
 
         output = torch.cat([acceleration, steering, brake, drift, fire, nitro], dim=-1)
 
@@ -142,7 +143,7 @@ class ActionCriticNetworkTrainer:
         if isinstance(curr_state_features, tuple):
             curr_state_features = torch.stack(curr_state_features)
             next_state_features = torch.stack(next_state_features)
-            action = torch.cat(action, 0)
+            action = torch.stack(action)
             reward = torch.unsqueeze(torch.stack(reward), 1)
             not_done = torch.unsqueeze(torch.stack(not_done), 1)
 
@@ -222,6 +223,14 @@ class ActionCriticNetworkTrainer:
                 target_param.data * (1.0 - tau) + param.data * tau
             )
 
+def init_fanin(tensor):
+    fanin = tensor.size(1)
+    v = 1.0 / np.sqrt(fanin)
+    torch.nn.init.uniform_(tensor, -v, v)
+
+def init_uniform(tensor, lo, hi):
+    torch.nn.init.uniform_(tensor.weight, lo, hi)
+    torch.nn.init.uniform_(tensor.bias, lo, hi)
 
 # StateAgent agnostic Save & Load model functions
 def save_model(model, name="state_agent"):
