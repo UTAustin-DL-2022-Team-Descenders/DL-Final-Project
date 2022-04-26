@@ -1,22 +1,19 @@
-from os import path
-from turtle import pu 
 import numpy as np
 from state_agent.agents.basic.action_network import load_model, save_model
 import torch
 import collections
-from .action_network import ActionNetwork, CriticNetwork, ActionCriticNetworkTrainer, save_model, load_model
+from .action_network import *
 import random, copy
 import torch.nn.functional as F
 
 # Globals
 DEBUG_EN = False
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
-MAX_SCORE = 3
-GOAL_LINE_Y_BUFFER = 3
 
 # Hyperparameters
 OBJS_TOUCHING_DISTANCE_THRESHOLD = 4 # Pixel distance threshold to denote objects are touching
 ACTION_TENSOR_EPSILON_THRESHOLD = 100 # used in get_random_action for decaying exploration vs exploitation
+GOAL_LINE_Y_BUFFER = 2 # Pixel distance buffer to denote the puck is in a goal (to ensure reward is observed)
 
 # StateAgent Default values
 DISCOUNT_RATE_GAMMA = 0.9 # between 0 to 1
@@ -210,18 +207,6 @@ class OUActionNoise:
             self.x_prev = self.x_initial
         else:
             self.x_prev = np.zeros_like(self.mean)
-class NormalNoise:
-
-  def __init__(self, size, mean=[0.5, 0, 0.5, 0.5, 0.5, 0.5], std=[0.2, 0.2, 0.2, 0.2, 0.2, 0.2], action_mins=[0, -1, 0, 0, 0, 0], action_maxs=[1, 1, 1, 1, 1, 1]):
-
-    self.means = torch.tensor(mean, device=DEVICE)
-    self.stds = torch.tensor(std, device=DEVICE)
-    self.action_mins = torch.tensor(action_mins, device=DEVICE)
-    self.action_maxs = torch.tensor(action_maxs, device=DEVICE)
-
-  def sample(self, action):
-    action += torch.normal(self.means, self.stds)
-    return torch.clamp(action, self.action_mins, self.action_maxs)
 class Team:
     agent_type = 'state'
     
@@ -239,6 +224,8 @@ class Team:
             self.model = load_model()
           except:
             self.model = ActionNetwork()
+            self.model = self.model.to(DEVICE)
+            self.model.eval()
         else:
           self.model = model
     

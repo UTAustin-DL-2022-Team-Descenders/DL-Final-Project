@@ -3,8 +3,7 @@ import torch
 import torch.utils.tensorboard as tb
 import os, random
 from ..utils import *
-from ..state_agent import *
-from .. import save_model
+from ..agents.basic.state_agent import *
 
 LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'logs')
 TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'reinforce_data')
