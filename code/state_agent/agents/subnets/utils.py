@@ -166,13 +166,16 @@ def show_graph(data):
     steer = [t['action'].steer for t in data]
     drift = [t['action'].drift for t in data]
     accel = [t['action'].acceleration for t in data]
-    fig, (steering_p, drift_p, accel_p) = plt.subplots(1, 3)
+    brake = [t['action'].brake for t in data]
+    fig, (steering_p, drift_p, accel_p, brake_p) = plt.subplots(1, 4)
     steering_p.plot(steer)
     steering_p.set_title("Steering")
     drift_p.plot(drift)
     drift_p.set_title("Drift")
     accel_p.plot(accel)
     accel_p.set_title("Accel")
+    brake_p.plot(brake)
+    brake_p.set_title("Brake")
     fig.show()
 
 def show_trajectory_histogram(trajectories, metric, min=0, max=1000, bins=10):
