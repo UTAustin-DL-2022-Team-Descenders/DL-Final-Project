@@ -43,7 +43,6 @@ def main():
     parser.add_argument('--clean', action='store_true', help="Clean datapath directory")
     parser.add_argument('--team1', type=str, default="random", choices=["random"]+TRAINING_OPPONENT_LIST, help="Team1 agent. Defaults to random agent")
     parser.add_argument('--team2', type=str, default="random", choices=["random"]+TRAINING_OPPONENT_LIST, help="Team2 agent. Defaults to random agent")
-    # TODO: Any more knobs to add?
 
     args = parser.parse_args()
 
@@ -108,6 +107,9 @@ def rollout(team1="random", team2="random", output_dir=TRAINING_PATH, record_sta
     
     output = subprocess.check_output(run_cmd)
 
+    if DEBUG_EN:
+        print(output.decode("utf-8"))
+
 
 def get_random_opponent():
     return random.choice(TRAINING_OPPONENT_LIST)
@@ -128,7 +130,6 @@ def clean_pkl_files_and_rollout_many(num_rollouts, training_opponent="random", a
     clean_pkl_files(output_dir)
     rollout_many(num_rollouts, training_opponent, agent_team_num, output_dir)
 
-
 # Rollout a number of games calling tournament runner -j (i.e. --parallel) using subprocess
 def rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
 
@@ -139,7 +140,8 @@ def rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, out
     output_dir = os.path.join(output_dir, "reinforce_data.pkl")
 
     # Base run command
-    run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir, "-j", str(num_rollouts)]
+    run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir]
+    #run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir, "-j", str(num_rollouts)]
 
     # Set training opponent
     if training_opponent == "random":
@@ -153,6 +155,9 @@ def rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, out
     
     # Invoke the run command
     output = subprocess.check_output(run_cmd)
+
+    if DEBUG_EN:
+        print(output.decode("utf-8"))
 
 
 # Returns accuracy between prediction and labels within pct_close

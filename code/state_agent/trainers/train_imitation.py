@@ -1,4 +1,3 @@
-from distutils.debug import DEBUG
 from .. import ActionNetwork, save_model, load_model
 from ..state_agent import *
 import torch, os, sys
@@ -6,7 +5,7 @@ import torch.utils.tensorboard as tb
 import numpy as np
 from ..utils import accuracy, get_pickle_files, load_recording
 
-LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'imitation_training_logs')
+LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'logs')
 TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'imitation_data')
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
@@ -39,7 +38,7 @@ def train(args):
     model.to(DEVICE)
     train_logger = None
     if args.logdir is not None:
-        train_logger = tb.SummaryWriter(args.logdir, flush_secs=1)
+        train_logger = tb.SummaryWriter(os.path.join(args.logdir, "imitation"), flush_secs=1)
 
     # Get model parameters
     parameters = model.parameters()
@@ -48,8 +47,7 @@ def train(args):
     mse_loss_module = torch.nn.MSELoss()
 
     # Binary Cross Entropy for binary actions e.g. drifting, braking, fire, nitro, and rescue
-    # REVISIT: will threshold with 0.5 and use MSELoss for these for now
-    #bce_loss_module = torch.nn.BCEWithLogitsLoss()
+    bce_loss_module = torch.nn.BCEWithLogitsLoss()
 
     # Create Optimizer
     #optimizer = torch.optim.SGD(parameters, lr=args.learning_rate, momentum=0.9)
@@ -83,7 +81,6 @@ def train(args):
         opponent_team_key = "team%0d_state" % opponent_team
 
         # Iterate over each game
-        # TODO: maybe there's a better way to randomize training across games?
         for pkl_file in training_pkl_file_list:
 
             if DEBUG_EN:
@@ -125,14 +122,26 @@ def train(args):
                     optimizer.zero_grad()
 
                     # Forward pass input through model to get prediction
-                    prediction = model(player_features)
+                    prediction = model(player_features)[0]
 
                     if DEBUG_EN:
                         print("prediction    - ", prediction)
                         print("action_labels - ", action_labels)
 
-                    # Foward pass prediction and heatmap through loss module to get loss
-                    loss = mse_loss_module(input=prediction, target=action_labels)
+                    # Foward pass prediction actions and labels through loss module to get loss
+
+                    # Continuous Actions (Acceleration & Steering) use MSE
+                    acc_loss = mse_loss_module(input=prediction[0], target=action_labels[0])
+                    steer_loss = mse_loss_module(input=prediction[1], target=action_labels[1])
+
+                    # Binary Actions (Brake, Drift, Fire, Nitro) use BCE
+                    brake_loss = bce_loss_module(input=prediction[2], target=action_labels[2])
+                    drift_loss = bce_loss_module(input=prediction[3], target=action_labels[3])
+                    fire_loss = bce_loss_module(input=prediction[4], target=action_labels[4])
+                    nitro_loss = bce_loss_module(input=prediction[5], target=action_labels[5])
+
+                    loss = acc_loss + steer_loss + brake_loss + drift_loss + fire_loss + nitro_loss
+
                     train_accuracy_list.append(accuracy(prediction, action_labels, ACCURARY_CLOSE_PERCENT))
 
                     # Log loss
@@ -160,13 +169,15 @@ def train(args):
 # Output channel order: [acceleration, steer, brake, drift, fire, nitro]
 # Uses default value of 0 if key is not found
 def convert_action_dictionary_to_tensor(action_dictionary):
-    return torch.as_tensor((action_dictionary.get("acceleration", 0),
+    action_tensor = torch.as_tensor((action_dictionary.get("acceleration", 0),
                             action_dictionary.get("steer", 0),
                             action_dictionary.get("brake", 0),
                             action_dictionary.get("drift", 0),
                             action_dictionary.get("fire", 0),
                             action_dictionary.get("nitro", 0)),
-                        dtype=torch.float32)
+                        dtype=torch.float32, device=DEVICE)
+    
+    return torch.unsqueeze(action_tensor, 0)
 
 if __name__ == '__main__':
     main()

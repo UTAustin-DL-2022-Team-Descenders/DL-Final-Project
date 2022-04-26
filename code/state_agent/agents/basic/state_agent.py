@@ -4,8 +4,8 @@ import numpy as np
 from state_agent.agents.basic.action_network import load_model, save_model
 import torch
 import collections
-from .action_network import ActionNetwork, ActionNetworkTrainer, save_model, load_model
-import random
+from .action_network import ActionNetwork, CriticNetwork, ActionCriticNetworkTrainer, save_model, load_model
+import random, copy
 import torch.nn.functional as F
 
 # Globals
@@ -16,54 +16,84 @@ GOAL_LINE_Y_BUFFER = 2
 
 # Hyperparameters
 OBJS_TOUCHING_DISTANCE_THRESHOLD = 4 # Pixel distance threshold to denote objects are touching
-ACTION_TENSOR_EPSILON_THRESHOLD = 9 # used in get_random_action for decaying exploration vs exploitation
+ACTION_TENSOR_EPSILON_THRESHOLD = 100 # used in get_random_action for decaying exploration vs exploitation
 
 # StateAgent Default values
 DISCOUNT_RATE_GAMMA = 0.9 # between 0 to 1
-INPUT_CHANNELS = 31 # Network input channels created by get_features
-OUTPUT_CHANNELS = 6 # Network outputs used for actions
+STATE_CHANNELS = 31 # State Channels created by get_features
+ACTION_CHANNELS = 6 # One channel for each actions
 
 class StateAgent:
 
-  MAX_MEMORY = 100000 # Number of timesteps to memorize
-  BATCH_SIZE = 16 # Batch size for long term training
+  MAX_MEMORY = 1000000 # Number of timesteps to memorize
+  BATCH_SIZE = 128 # Batch size for long term training
 
-  def __init__(self, input_channels=INPUT_CHANNELS, output_channels=OUTPUT_CHANNELS, 
-                gamma=DISCOUNT_RATE_GAMMA, load_existing_model=False, optimizer="ADAM", lr=0.001):
-    self.n_games = 0 # number of games played
+  def __init__(self, input_channels=STATE_CHANNELS, output_channels=ACTION_CHANNELS, 
+                discount_rate=DISCOUNT_RATE_GAMMA, load_existing_model=False, optimizer="ADAM", lr=0.001,
+                logger=None, player_num=0):
+
+    # number of games played
+    self.n_games = 0 
+
+    # Player num of this agent, used to differentiate using multiple agents on a team
+    self.player_num = player_num
 
     # Collect entries for trained timesteps
     self.memory = collections.deque(maxlen=StateAgent.MAX_MEMORY)
 
-    # Try loading an existing model to continue training it
+    # Noise to add to ActionNetwork output 
+    self.noise = NormalNoise(output_channels)
+
+    # Try loading an existing action_net to continue training it
     if load_existing_model:
-      self.model = load_model()
+      self.action_net = load_model("state_agent")
+      self.critic_net = load_model("critic")
     else:
       # Initialize an ActionNetwork
-      self.model = ActionNetwork(input_channels=input_channels, 
+      self.action_net = ActionNetwork(input_channels=input_channels, 
                               output_channels=output_channels)
 
-      # Save this newly initialized model for rollouts
-      self.model.to(DEVICE)
-      save_model(self.model)
+      # Save this newly initialized action_net for rollouts
+      self.action_net.to(DEVICE)
+      save_model(self.action_net)
+
+      self.critic_net = CriticNetwork(input_state_channels=STATE_CHANNELS, input_action_channels=ACTION_CHANNELS)
+      self.critic_net.to(DEVICE)
+
+    self.target_action_net = ActionNetwork(input_channels=input_channels, output_channels=output_channels)
+    self.target_action_net.to(DEVICE)
+    self.target_critic_net = CriticNetwork(input_state_channels=STATE_CHANNELS, input_action_channels=ACTION_CHANNELS)
+    self.target_critic_net.to(DEVICE)
+
+    # Make target networks copies of original action/critic networks
+    self.copy_network_params(self.action_net, self.target_action_net)
+    self.copy_network_params(self.critic_net, self.target_critic_net)
 
     # Initialize a trainer to perform network training
-    self.trainer = ActionNetworkTrainer(self.model, gamma=gamma, lr=lr, optimizer=optimizer)
+    self.trainer = ActionCriticNetworkTrainer(action_net=self.action_net, target_action_net=self.target_action_net,
+                                              critic_net=self.critic_net, target_critic_net=self.target_critic_net,
+                                              discount_rate=discount_rate, lr=lr, optimizer=optimizer,
+                                              logger=logger)
   
+  def copy_network_params(self, source_network, destination_network):
+
+    for dest_param, src_param in zip(destination_network.parameters(), source_network.parameters()):
+      dest_param.data.copy_(src_param.data)
 
   # Add timestep information to memory
-  def memorize(self, prev_state, action, reward, curr_state, done):
+  def memorize(self, curr_state, action, reward, next_state, not_done):
 
-    # Return if prev_state is None
-    if prev_state is None:
-      return
+    if not_done == True:
+      not_done = torch.tensor(1, device=DEVICE)
+    else:
+      not_done = torch.tensor(0, device=DEVICE)
 
     # Save information as a tuple
-    self.memory.append((prev_state, action, reward, curr_state, done))
+    self.memory.append((curr_state, action, reward, next_state, not_done))
 
 
   # Performs training step on a batch of timesteps from memory
-  def train_batch_timesteps(self):
+  def train_batch_timesteps(self, global_step):
 
     # Get a sample if memory contains at least a batch size
     if len(self.memory) > StateAgent.BATCH_SIZE:
@@ -72,14 +102,14 @@ class StateAgent:
       mini_sample = self.memory # Otherwise just take the entire memory as a batch
 
     # Convert mini_sample into a list of state_features, actions, rewards, & dones
-    prev_states_features, actions, rewards, curr_states_features, dones = zip(*mini_sample)
+    curr_states_features, actions, rewards, next_states_features, dones = zip(*mini_sample)
 
-    self.trainer.train_step(prev_states_features, actions, rewards, curr_states_features, dones)
+    self.trainer.train_step(curr_states_features, actions, rewards, next_states_features, dones, global_step)
 
 
   # Performs training step on a single timestep
-  def train_immediate_timestep(self, prev_state_features, action, reward, curr_state_features, done):
-    self.trainer.train_step(prev_state_features, action, reward, curr_state_features, done)
+  def train_immediate_timestep(self, curr_state_features, action, reward, next_state_features, not_done, global_step):
+    self.trainer.train_step(curr_state_features, action, reward, next_state_features, not_done, global_step)
 
 
   # Gets an action tensor for a timestep
@@ -88,12 +118,20 @@ class StateAgent:
     epsilon = ACTION_TENSOR_EPSILON_THRESHOLD - self.n_games
 
     # Either take a random action (exploration)
-    # or prediction action from the model (exploitation).
+    # or prediction action from the action_net (exploitation).
     # Likeihood of random action decays as number of games increases
-    if random.randint(0, 10) < epsilon:
-        action_tensor = self.get_random_action()
-    else:
-        action_tensor = self.model(state_features)
+
+    self.action_net.eval()
+    state_features = torch.unsqueeze(state_features, 0)
+    action_tensor = self.action_net(state_features).detach()
+
+    if random.randint(0, 150) < epsilon:
+      
+      action_tensor[0] = self.noise.sample(action_tensor[0])
+      #actions_min_bounds = torch.tensor((0, -1, 0, 0, 0, 0), device=DEVICE) # Minimum values of each action
+      #actions_max_bounds = torch.tensor((1, 1, 1, 1, 1, 1), device=DEVICE) # maximum values of each action
+      #action_tensor[0] += torch.tensor(self.ou_noise.sample(), device=DEVICE)
+      #action_tensor[0] = torch.clamp(action_tensor[0], actions_min_bounds, actions_max_bounds)
 
     return action_tensor
   
@@ -107,15 +145,48 @@ class StateAgent:
     fire = random.random() > 0.5
     nitro = random.random() > 0.5
 
-    return torch.tensor((acceleration,
+    action_tensor = torch.tensor((acceleration,
                         steer,
                         brake,
                         drift,
                         fire,
                         nitro),
                       device=DEVICE)
+    return torch.unsqueeze(action_tensor, 0)
 
+class OUNoise:
+    """Ornstein-Uhlenbeck process."""
 
+    def __init__(self, size, mu=0., theta=0.15, sigma=0.1):
+        """Initialize parameters and noise process."""
+        self.mu = mu * np.ones(size)
+        self.theta = theta
+        self.sigma = sigma
+        self.reset()
+
+    def reset(self):
+        """Reset the internal state (= noise) to mean (mu)."""
+        self.state = copy.copy(self.mu)
+
+    def sample(self):
+        """Update internal state and return it as a noise sample."""
+        x = self.state
+        dx = self.theta * (self.mu - x) + self.sigma * np.array([np.random.randn() for i in range(len(x))])
+        self.state = x + dx
+        return self.state
+
+class NormalNoise:
+
+  def __init__(self, size, mean=[0.5, 0, 0.5, 0.5, 0.5, 0.5], std=[0.2, 0.2, 0.2, 0.2, 0.2, 0.2], action_mins=[0, -1, 0, 0, 0, 0], action_maxs=[1, 1, 1, 1, 1, 1]):
+
+    self.means = torch.tensor(mean, device=DEVICE)
+    self.stds = torch.tensor(std, device=DEVICE)
+    self.action_mins = torch.tensor(action_mins, device=DEVICE)
+    self.action_maxs = torch.tensor(action_maxs, device=DEVICE)
+
+  def sample(self, action):
+    action += torch.normal(self.means, self.stds)
+    return torch.clamp(action, self.action_mins, self.action_maxs)
 class Team:
     agent_type = 'state'
     
@@ -203,10 +274,10 @@ class Team:
           # Get features from this player, teammates, opponents, and ball
           player_features = get_features(player_state, player_states[:player_num] + player_states[player_num+1:], opponent_states, soccer_state, self.team)
 
-          player_features = player_features.to(DEVICE)
+          player_features = torch.unsqueeze(player_features, 0)
 
           # Get network output by forward feeding features through the model
-          network_output = self.model(player_features)
+          network_output = self.model(player_features)[0]
 
           # add action dictionary to actions list
           actions.append(get_action_dictionary_from_network_output(network_output))
@@ -230,7 +301,24 @@ class Team:
         return player_features
 
 
-def get_features(player_state, team_state, opponent_states, puck_state, team_id):
+def get_features_from_unified_state_dictionaries(state_dictionaries, team_num, player_num):
+
+  # Get agent & opponent dictionary key info
+  player_team_key = "team%0d_state" % team_num
+  opponent_team_num = 2 if team_num == 1 else 1
+  opponent_team_key = "team%0d_state" % opponent_team_num
+
+  # Get player & opponent state dictionaries
+  player_states = state_dictionaries[player_team_key]
+  opponent_states = state_dictionaries[opponent_team_key]
+  
+  return get_features(player_states[player_num], player_states[:player_num] + player_states[player_num+1:], 
+                                                opponent_states, state_dictionaries["soccer_state"],
+                                                team_num)
+
+def get_features(player_state, team_state, opponent_states, puck_state, team_num):
+
+    opponent_team_num = 2 if team_num == 1 else 1
 
     # Collect features inside a dictionary
     features_dict = {}
@@ -246,12 +334,12 @@ def get_features(player_state, team_state, opponent_states, puck_state, team_id)
 
     # Get goal line features
     # - Opponent goal line
-    features_dict["opponent_goal_line_center"] = get_team_goal_line_center(puck_state, get_goal_by_team_id(team_id+1))
+    features_dict["opponent_goal_line_center"] = get_team_goal_line_center(puck_state, get_goal_line_index_from_team_num(opponent_team_num))
     features_dict["puck_to_opponent_goal_line_angle"] = get_obj1_to_obj2_angle(features_dict["puck_center"], features_dict["opponent_goal_line_center"])
     features_dict["kart_to_opponent_goal_line_difference"] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_angle"], features_dict["puck_to_opponent_goal_line_angle"])
 
     # - Team goal line
-    features_dict["team_goal_line_center"] = get_team_goal_line_center(puck_state, get_goal_by_team_id(team_id))
+    features_dict["team_goal_line_center"] = get_team_goal_line_center(puck_state, get_goal_line_index_from_team_num(team_num))
     features_dict["puck_to_team_goal_line_angle"] = get_obj1_to_obj2_angle(features_dict["puck_center"], features_dict["team_goal_line_center"])
     features_dict["kart_to_team_goal_line_difference"] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_angle"], features_dict["puck_to_team_goal_line_angle"])
 
@@ -290,7 +378,7 @@ def get_features(player_state, team_state, opponent_states, puck_state, team_id)
       for feature in features_list:
         print(feature)
 
-    return torch.tensor(features_list, dtype=torch.float32)
+    return torch.tensor(features_list, dtype=torch.float32, device=DEVICE)
 
 def get_kart_front(state):
   return torch.tensor(state['kart']['front'], dtype=torch.float32)[[0, 2]]
@@ -311,11 +399,11 @@ def get_object_center(state_dict):
 def get_puck_center(puck_state):
   return get_object_center(puck_state["ball"])
 
-def get_team_goal_line_center(puck_state, team_id):
-  return torch.tensor(puck_state['goal_line'][team_id], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
+def get_team_goal_line_center(puck_state, goal_line_index):
+  return torch.tensor(puck_state['goal_line'][goal_line_index], dtype=torch.float32)[:, [0, 2]].mean(dim=0)
 
-def get_team_goal_line(puck_state, team_id):
-  return torch.tensor(puck_state['goal_line'][team_id], dtype=torch.float32)[:, [0, 2]]
+def get_team_goal_line(puck_state, goal_line_index):
+  return torch.tensor(puck_state['goal_line'][goal_line_index], dtype=torch.float32)[:, [0, 2]]
 
 # limit angle between -1 to 1
 def limit_period(angle):
@@ -326,8 +414,12 @@ def get_obj1_to_obj2_angle_difference(object1_angle, object2_angle):
   return limit_period(angle_difference)
 
 # Assumes there are always two teams (0 and 1)
-def get_goal_by_team_id(team_id):
-  return (team_id+1) % 2
+# Team 1 -> Goal 0; Team 2 -> Goal 1
+def get_goal_line_index_from_team_num(team_num):
+  if team_num == 1:
+    return 0
+  else:
+    return 1
 
 # Assumes network outputs 6 different actions
 # Output channel order: [acceleration, steer, brake, drift, fire, nitro]
@@ -343,49 +435,108 @@ def get_action_dictionary_from_network_output(network_output):
 
 
 # TODO: Make this reward function more robust
-def get_reward(player_state, team_state, opponent_states, puck_state, team_id):
-  DEBUG_EN = False
+def get_reward(state_dictionaries, actions, team_num, player_num):
+
+  DEBUG_EN = True
   reward = 0
 
-  player_goal_line = get_team_goal_line(puck_state, get_goal_by_team_id(team_id))
-  opponent_goal_line = get_team_goal_line(puck_state, get_goal_by_team_id(team_id+1))
+  # Get agent & opponent dictionary key info
+  player_team_key = "team%0d_state" % team_num
+  opponent_team_num = 2 if team_num == 1 else 1
+  opponent_team_key = "team%0d_state" % opponent_team_num
+
+  # Get player, team, and opponent state dictionaries
+  player_and_team_states = state_dictionaries[player_team_key]
+  player_state = player_and_team_states[player_num]
+  team_state = player_and_team_states[:player_num] + player_and_team_states[player_num+1:]
+  opponent_states = state_dictionaries[opponent_team_key]
+
+  # Get puck_state
+  puck_state = state_dictionaries["soccer_state"]
+
+  player_goal_line_index = get_goal_line_index_from_team_num(team_num)
+  opponent_goal_line_index = get_goal_line_index_from_team_num(opponent_team_num)
+
+  opponent_goal_center = get_team_goal_line_center(puck_state, opponent_goal_line_index)
+  player_goal_center = get_team_goal_line_center(puck_state, player_goal_line_index)
+
   puck_center = get_puck_center(puck_state)
   kart_center = get_kart_center(player_state)
+
+  kart_to_puck_distance = get_obj1_to_obj2_distance(kart_center, puck_center)
+  puck_to_opponent_goal_distance = get_obj1_to_obj2_distance(opponent_goal_center, puck_center)
+  puck_to_player_goal_distance = get_obj1_to_obj2_distance(player_goal_center, puck_center)
+  
+  #if DEBUG_EN:
+    #print("get_reward - kart_to_puck_distance ", kart_to_puck_distance)
+    #print("get_reward - inverse kart_to_puck_distance ", 10*(1/kart_to_puck_distance))
+    #print("get_reward - puck_to_opponent_goal_distance ", puck_to_opponent_goal_distance)
+    #print("get_reward - inverse puck_to_opponent_goal_distance ", 10*(1/puck_to_opponent_goal_distance))
+    #print("get_reward - inverse puck_to_player_goal_distance ", 10*(1/puck_to_player_goal_distance))
+
+
+  # Increase reward as puck gets closer to the opponent goal
+  reward += (1/puck_to_opponent_goal_distance)*10
+
+  # Decrease reward as puck get closer to player goal
+  reward -= (1/puck_to_player_goal_distance)*10
+
+  # Increase reward as kart gets closer to the puck
+  reward += (1/kart_to_puck_distance)*10
 
   if is_touching(kart_center, puck_center):
     reward += 10
     if DEBUG_EN:
       print("player is touching the puck")
 
-  if is_puck_in_goal(puck_center, player_goal_line):
+  if is_puck_in_team_goal(puck_state, team_num):
     reward -= 100
     if DEBUG_EN:
-      print("puck is in player goal")
-  elif is_puck_in_goal(puck_center, opponent_goal_line):
+      print("puck is in agent goal")
+
+  if is_puck_in_team_goal(puck_state, opponent_team_num):
     reward += 100
     if DEBUG_EN:
       print("puck is in opponent goal")
   
-  return torch.tensor(reward, dtype=torch.float32)
+  #return torch.tensor(reward, dtype=torch.float32, device=DEVICE)
+  return reward.clone().detach().to(DEVICE)
 
 def is_touching(object1_center, object2_center, threshold=OBJS_TOUCHING_DISTANCE_THRESHOLD):
   return get_obj1_to_obj2_distance(object1_center, object2_center) < threshold
 
-def is_puck_in_goal(puck_center, goal_line):
-  
+def is_puck_in_team_goal(puck_state, team_num):
+
+  puck_center = get_puck_center(puck_state)
+  team_goal = get_goal_line_index_from_team_num(team_num)
+  team_goal_line = get_team_goal_line(puck_state, team_goal)
+
   # The puck is in goal if the puck_center is in between the two sides of the goal
   # and past the Y axis of the goal line minus a small buffer
+
+  if team_num == 1:
+
+    # puck is in between goal posts
+    if team_goal_line[0][0] <= puck_center[0] <= team_goal_line[1][0]:
+
+      # if puck is at or above team1 goal line (-64.5 + buffer)
+      if puck_center[1] <= (team_goal_line[0][1] + GOAL_LINE_Y_BUFFER):
+        return True
   
-  if goal_line[0][0] < puck_center[0] < goal_line[1][0] and \
-  abs(puck_center[1]) >= abs(goal_line[0][1])-GOAL_LINE_Y_BUFFER:
-    return True
-  else:
-    return False
+  else: # team_num == 2
+    
+    # puck is in between goal posts
+    if team_goal_line[1][0] <= puck_center[0] <= team_goal_line[0][0]:
+
+      # if puck is at or below team2 goal line (64.5 - buffer)
+      if puck_center[1] >= (team_goal_line[0][1] - GOAL_LINE_Y_BUFFER):
+          return True
+      
+  return False
 
 def get_obj1_to_obj2_distance(object1_center, object2_center):
   return F.pairwise_distance(object1_center, object2_center)
 
-
-# Get the score of a team using team_id
-def get_score(puck_state, team_id):
-  return puck_state["score"][get_goal_by_team_id(team_id)]
+# Get the score of a team using team_num
+def get_score(puck_state, team_num):
+  return puck_state["score"][get_goal_line_index_from_team_num(team_num)]
