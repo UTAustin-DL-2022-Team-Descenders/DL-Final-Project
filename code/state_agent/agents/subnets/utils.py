@@ -137,21 +137,24 @@ def show_video_soccer(data, fps=30):
         image_to_edit = ImageDraw.Draw(img)        
         image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)))         
         image_to_edit.text((10, 20), "speed: {}".format(speed))         
-        image_to_edit.text((10, 30), "steering: {}".format(float(action.steer)))         
+        image_to_edit.text((10, 30), "steering: {}".format(action.steer))         
         image_to_edit.text((10, 40), "drift: {}".format(action.drift))         
-        image_to_edit.text((10, 50), "distance: {}".format(distance))         
-        image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)))         
+        image_to_edit.text((10, 50), "brake: {}".format(action.brake))         
+        image_to_edit.text((10, 60), "distance: {}".format(distance))         
+        image_to_edit.text((10, 70), "angle diff: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)))         
         images.append(np.array(img))
 
     for img, action, distance, feature, speed in zip(frames_map, actions, distances, features, speeds):
         image_to_edit = ImageDraw.Draw(img)    
         image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)), fill=(0, 0, 0))
         image_to_edit.text((10, 20), "speed: {}".format(speed), fill=(0, 0, 0))         
-        image_to_edit.text((10, 30), "steering: {}".format(float(action.steer)), fill=(0, 0, 0))
+        image_to_edit.text((10, 30), "steering: {}".format(action.steer), fill=(0, 0, 0))
         image_to_edit.text((10, 40), "drift: {}".format(action.drift), fill=(0, 0, 0))  
-        image_to_edit.text((10, 50), "distance: {}".format(distance), fill=(0, 0, 0))    
-        image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)), fill=(0, 0, 0))                     
+        image_to_edit.text((10, 50), "brake: {}".format(action.brake), fill=(0, 0, 0))         
+        image_to_edit.text((10, 60), "distance: {}".format(distance), fill=(0, 0, 0))    
+        image_to_edit.text((10, 70), "angle diff: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)), fill=(0, 0, 0))                     
         map_images.append(np.array(img))
+
 
     # create map video
 
@@ -213,18 +216,26 @@ def dummy_agent(**kwargs):
         
 
 # StateAgent agnostic Save & Load model functions. Used in state_agent.py Match
-def save_model(model, f_path, file=__file__):
+def save_model(model, f_path, file=__file__, jit=False):
     from os import path
-    model_scripted = torch.jit.script(model)
-    model_scripted.save(path.join(path.dirname(path.abspath(file)), f_path ))
+    save_path = path.join(path.dirname(path.abspath(file)), f_path )
+    if jit:
+        model_scripted = torch.jit.script(model)
+        model_scripted.save(save_path)
+    else:
+        torch.save(model.state_dict(), save_path)
 
 
-def load_model(f_path, file=__file__):
+def load_model(f_path, file=__file__, model=None):
     from os import path
     import sys
     load_path = path.join(path.dirname(path.abspath(file)), f_path)
     try:
-        model = torch.jit.load(load_path)
+        if model:
+            model.load_state_dict(torch.load(load_path))
+            model.eval()
+        else:   
+            model = torch.jit.load(load_path)                     
         #print("Loaded pre-existing ActionNetwork from", load_path)
         return model
     except FileNotFoundError as e:
