@@ -55,7 +55,7 @@ class Rollout:
             self.track_info = track_info = pystk.Track()
             track_info.update()
         elif self.mode == "soccer":
-            ball_location = ball_location if ball_location else ([0, 0] if randomize == False else np.random.normal(loc=0.0, scale=24.0, size=(2)))
+            ball_location = ball_location if ball_location else ([0, 0] if randomize == False else np.random.uniform(low=-40, high=40, size=(2)))
             ball_velocity = ball_velocity if ball_velocity else [0, 0]
             world_info.set_ball_location((ball_location[0], 1, ball_location[1]),
                                         (ball_velocity[0], 0, ball_velocity[1]))
@@ -84,16 +84,19 @@ class Rollout:
         controller = PlayerConfig.Controller.AI_CONTROL if is_ai else PlayerConfig.Controller.PLAYER_CONTROL
         return PlayerConfig(controller=controller, team=team_id, kart=kart)
 
-    def __call__(self, agent, n_steps=600, **kwargs):
+    def __call__(self, agent, n_steps=600, randomize=False, **kwargs):
         torch.set_num_threads(1)
         self.race.restart()
         self.race.step()
         data = []
 
         world_info = pystk.WorldState()    
-        self.initialize_state(world_info, **kwargs)
+        self.initialize_state(world_info, randomize=randomize, **kwargs)
         world_info.update()
     
+        previous_score_sum = np.sum(world_info.soccer.score)
+        reset_needed = False
+        
         for i in range(n_steps // self.frame_skip):            
             world_info = pystk.WorldState()        
             world_info.update()
@@ -112,6 +115,16 @@ class Rollout:
             # Take a step in the simulation
             for it in range(self.frame_skip):
                 self.race.step(game_action)
+
+            score_sum = np.sum(world_info.soccer.score)
+            if score_sum != previous_score_sum:
+                previous_score_sum = score_sum
+                reset_needed = True
+                
+            # is the puck in the air?
+            if reset_needed and world_info.soccer.ball.location[1] < 1.0:
+                self.initialize_state(world_info, randomize=randomize, **kwargs)
+                reset_needed = False
 
             # Save all the relevant data
             data.append(agent_data)

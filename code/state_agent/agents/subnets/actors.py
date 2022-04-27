@@ -12,7 +12,7 @@ class SteeringActor(BaseActor):
         # inputs: delta steering angle
         super().__init__(LinearWithTanh(1, 1) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
-    def __call__(self, action, f, train=False, **kwargs):        
+    def __call__(self, action, f, train=False, **kwargs):
         output = self.action_net(f)
         if self.train is not None:
             train = self.train
@@ -22,16 +22,16 @@ class SteeringActor(BaseActor):
             action.steer = output[0] # raw output
         return action
 
-    def reward(self, action, extractor, selected_features_curr, selected_features_next):
+    def reward(self, action, selected_features_curr, selected_features_next):
         current_angle = selected_features_curr
         next_angle = selected_features_next
         return steering_angle_reward(current_angle, next_angle)        
     
-    def extract_greedy_action(self, action):
+    def extract_greedy_action(self, action, *args, **kwargs):
         return [action.steer > 0]
 
     def select_features(self, features, features_vec):
-        delta_steering_angle = features.select_delta_steering(features_vec)
+        delta_steering_angle = features.select_player_puck_angle(features_vec)
         return torch.Tensor([
             delta_steering_angle
         ])
@@ -55,16 +55,16 @@ class DriftActor(BaseActor):
         
         return action
 
-    def reward(self, action, extractor, selected_features_curr, selected_features_next):
+    def reward(self, action, selected_features_curr, selected_features_next):
         [current_angle] = selected_features_curr
         [next_angle] = selected_features_next        
         return steering_angle_reward(current_angle, next_angle)
         
-    def extract_greedy_action(self, action):
+    def extract_greedy_action(self, action, *args, **kwargs):
         return [action.drift > 0.5]
 
     def select_features(self, features, features_vec):
-        delta_steering_angle = features.select_delta_steering(features_vec)        
+        delta_steering_angle = features.select_player_puck_angle(features_vec)        
         return torch.tensor([
             delta_steering_angle
         ])
@@ -83,7 +83,7 @@ class SpeedActor(BaseActor):
         #   brake (boolean)
         super().__init__(LinearWithSigmoid(3, 2) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)        
 
-    def __call__(self, action, f, train=True, **kwargs):        
+    def __call__(self, action, f, train=True, **kwargs):  
         output = self.action_net(f) 
         if self.train is not None:
             train = self.train
@@ -99,7 +99,7 @@ class SpeedActor(BaseActor):
         return action
 
     def select_features(self, features, features_vec):
-        delta_steering_angle = features.select_delta_steering(features_vec)        
+        delta_steering_angle = features.select_player_puck_angle(features_vec)        
         delta_speed = features.select_delta_speed(features_vec)        
         target_speed = features.select_target_speed(features_vec)        
         return torch.tensor([
@@ -108,7 +108,7 @@ class SpeedActor(BaseActor):
             target_speed
         ])
 
-    def reward(self, action, extractor, selected_features_curr, selected_features_next):
+    def reward(self, action, selected_features_curr, selected_features_next):
 
         [_, current_speed, _] = selected_features_curr
         [_, next_speed, next_target_speed] = selected_features_next
@@ -146,7 +146,7 @@ class SpeedActor(BaseActor):
 
         return reward
 
-    def extract_greedy_action(self, action):
+    def extract_greedy_action(self, action, *args, **kwargs):
         return [
             # train acceleration to speed up or slow down (1, 0)
             action.acceleration > 0.5,

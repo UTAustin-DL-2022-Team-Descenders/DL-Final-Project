@@ -62,16 +62,29 @@ def cart_speed(kart_info):
 def get_target_speed_feature(features):
     return features[TARGET_SPEED_FEATURE]
 
+def get_team_goal_line_center(puck_state, team_id):
+  value = np.array(puck_state.goal_line[team_id], dtype=np.float32)
+  return value[:, [0, 2]].mean()
+
+def get_team_goal_line(puck_state, team_id):
+  return torch.tensor(puck_state.goal_line[team_id], dtype=torch.float32)[:, [0, 2]]
+
 class Features():
     pass
 
 class SoccerFeatures(Features):
     
-    DELTA_STEERING_ANGLE = 44
+    PLAYER_PUCK_DISTANCE = 2
+    PUCK_GOAL_DISTANCE = 5    
+    DELTA_SPEED_BEHIND = 36
+    TARGET_SPEED_BEHIND = 37
+    SPEED = 38
+    TARGET_SPEED = 39    
+    DELTA_SPEED = 40     
+    STEERING_ANGLE_BEHIND = 41
+    PLAYER_PUCK_ANGLE = 42
     STEERING_ANGLE = 43
-    TARGET_ANGLE = 42
-    DELTA_SPEED = 40    
-    TARGET_SPEED = 39
+    PLAYER_PUCK_GOAL_ANGLE = 44
     
     def get_feature_vector(self, kart_info, soccer_state, absolute=False, target_speed=0.0, **kwargs):
 
@@ -83,39 +96,65 @@ class SoccerFeatures(Features):
 
         # puck
         puck = get_puck_center(soccer_state)
-        
+
+        # goal
+        goal = get_team_goal_line_center(soccer_state, 0) # team is hard-coded!!!!
+
         # steering angles to points down the track
         steer_angle = get_obj1_to_obj2_angle(p, front)
+        steer_angle_behind = get_obj1_to_obj2_angle(p, front) + np.pi
         steer_angle_puck = get_obj1_to_obj2_angle(p, puck)
+        steer_angle_puck_goal = get_obj1_to_obj2_angle(puck, goal)
         
         # speed
         speed = cart_speed(kart_info)
+        speed_negative = -10
 
         features = np.zeros(45).astype(np.float32)
 
         features[0:2] = p - puck
-        features[self.STEERING_ANGLE] = steer_angle
-        features[self.TARGET_ANGLE] = steer_angle_puck
+        features[self.PLAYER_PUCK_DISTANCE] = np.linalg.norm(p - puck)
+        features[self.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
+        features[self.SPEED] = speed
         features[self.TARGET_SPEED] = target_speed
+        features[self.TARGET_SPEED_BEHIND] = speed_negative
         features[self.DELTA_SPEED] = target_speed - speed
-        features[self.DELTA_STEERING_ANGLE] = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
+        features[self.DELTA_SPEED_BEHIND] = speed_negative - speed
+        features[self.STEERING_ANGLE_BEHIND] = steer_angle_behind
+        features[self.PLAYER_PUCK_ANGLE] = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
+        features[self.PLAYER_PUCK_GOAL_ANGLE] = get_obj1_to_obj2_angle_difference(steer_angle_puck, steer_angle_puck_goal)
 
         return features
 
-    def select_steering_angle(self, features):        
-        return features[self.STEERING_ANGLE]
+    def select_player_puck_goal_angle(self, features):        
+        return features[self.PLAYER_PUCK_GOAL_ANGLE]
 
-    def select_target_angle(self, features):        
-        return features[self.TARGET_ANGLE]
+    def select_player_puck_angle(self, features):        
+        return features[self.PLAYER_PUCK_ANGLE]
 
-    def select_delta_steering(self, features):        
-        return features[self.DELTA_STEERING_ANGLE]
+    def select_behind_player_angle(self, features):        
+        return features[self.STEERING_ANGLE_BEHIND]
 
     def select_lateral_distance(self, features):
         return 0
 
+    def select_speed(self, features):
+        return features[self.SPEED]
+
+    def select_speed_behind(self, features):
+        return features[self.TARGET_SPEED_BEHIND]
+
     def select_delta_speed(self, features):
         return features[self.DELTA_SPEED]
 
+    def select_delta_speed_behind(self, features):
+        return features[self.DELTA_SPEED_BEHIND]
+
     def select_target_speed(self, features):
         return features[self.TARGET_SPEED]
+
+    def select_player_puck_distance(self, features):
+        return features[self.PLAYER_PUCK_DISTANCE]
+
+    def select_puck_goal_distance(self, features):
+        return features[self.PUCK_GOAL_DISTANCE]

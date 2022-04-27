@@ -39,7 +39,7 @@ class SoccerReinforcementConfiguration:
         self.evaluator = SoccerBallDistanceObjective() 
         self.extract_trajectory = raw_trajectory
         self.extract_action = get_player_action
-        self.agent = Agent()       
+        self.agent = Agent      
 
 class TournamentReinforcementConfiguration:
 
@@ -50,7 +50,7 @@ class TournamentReinforcementConfiguration:
         self.evaluator = SoccerBallDistanceObjective() 
         self.extract_trajectory = raw_trajectory_to_player_trajectory
         self.extract_action = get_player_action_tourney
-        self.agent = Agent()       
+        self.agent = Agent       
 
 
 configuration = SoccerReinforcementConfiguration()
@@ -96,7 +96,7 @@ def reinforce(
 
         # perform the validation rollouts
         validation_agents = [configuration.agent(*slice_net, actor) for i in range(n_validations)]
-        validation_trajectories = rollout_many(validation_agents, mode=configuration.mode, n_steps=n_steps)
+        validation_trajectories = rollout_many(validation_agents, mode=configuration.mode, randomize=True, n_steps=n_steps)
         
         context, updated = validate_epoch(
             actor,
@@ -158,6 +158,7 @@ def reinforce_epoch(
 
     it = 0
 
+    action_net.train()
     for num, trajectory in enumerate(trajectories):
 
         loss = []
@@ -165,12 +166,12 @@ def reinforce_epoch(
 
         for i in range(len(trajectory)):                
             # Compute the returns
-
+            features_vec = features[it + i]
             action = configuration.extract_action(trajectory[i], player_id)
+            greedy_action = actor.extract_greedy_action(action, features_vec)
 
             reward = actor.reward(
                 action,
-                agent.extractor,
                 features[it + i],
                 features[it + min(i + T, len(trajectory)-1)]
             )
@@ -181,7 +182,7 @@ def reinforce_epoch(
             
             # Store the action that we took
             actions.append( 
-                actor.extract_greedy_action(action)
+                greedy_action
             )
 
         it += len(trajectory)
@@ -196,8 +197,6 @@ def reinforce_epoch(
     
     # enable this if not using discrete rewards! 
     #returns = (returns - returns.mean()) / returns.std()
-    
-    action_net.train()
     avg_expected_log_return = []
     for it in range(iterations):
         batch_ids = torch.randint(0, len(returns), (batch_size,))
@@ -207,7 +206,7 @@ def reinforce_epoch(
         
         output = action_net(batch_features)
         log_prob = actor.log_prob(output, actions=batch_actions)
-        
+
         expected_log_return = (log_prob.squeeze()*batch_returns).mean()
         optim.zero_grad()
         (-expected_log_return).backward()

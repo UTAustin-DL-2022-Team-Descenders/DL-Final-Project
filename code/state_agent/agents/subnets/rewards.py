@@ -4,6 +4,12 @@
 import numpy as np
 from .features import cart_location, get_puck_center, MAX_SPEED
 
+MAX_STEERING_ANGLE_REWARD = np.pi
+MAX_SPEED_REWARD = 3.0
+MAX_SOCCER_DISTANCE_REWARD = 3.0
+MAX_DISTANCE = 130
+PUCK_RADIUS = 2.0
+
 def lateral_distance_reward(current_lat, next_lat):
     # lateral distance reward
     reward = 0
@@ -42,8 +48,6 @@ def distance_traveled_reward(current_distance, next_distance, max=100):
 
     return np.clip(next_distance - current_distance, 0, max)
 
-MAX_STEERING_ANGLE_REWARD = np.pi
-
 def continuous_causal_reward(current_, next_, threshold, max):
 
     reward = 0
@@ -68,10 +72,6 @@ def steering_angle_reward(current_angle, next_angle):
     multiplier = 1
     
     return multiplier * continuous_causal_reward(c_delta, n_delta, threshold=np.deg2rad(0.5), max=MAX_STEERING_ANGLE_REWARD)
-
-    
-    
-MAX_SPEED_REWARD = 3.0
 
 def speed_reward(current_speed, next_speed):
     return continuous_causal_reward(current_speed / MAX_SPEED * MAX_SPEED_REWARD, next_speed / MAX_SPEED * MAX_SPEED_REWARD, threshold=0.5, max=MAX_SPEED_REWARD)
@@ -98,7 +98,7 @@ class OverallDistanceObjective(ObjectiveEvaluator):
 
 class TargetDistanceObjective(ObjectiveEvaluator):
 
-    def __init__(self, max_distance=150) -> None:
+    def __init__(self, max_distance=MAX_DISTANCE) -> None:
         super().__init__()
         self.max_distance = max_distance
 
