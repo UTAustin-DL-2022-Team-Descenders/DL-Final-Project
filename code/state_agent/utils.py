@@ -126,32 +126,43 @@ def load_recording(recording):
                 break
 
 
-def clean_pkl_files_and_rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
+def clean_pkl_files_and_rollout_many(training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH, record_state=True, record_video=False, iteration=0):
     clean_pkl_files(output_dir)
-    rollout_many(num_rollouts, training_opponent, agent_team_num, output_dir)
+    
+    if agent_team_num == 1:
+        team1 = "state_agent"
+        team2 = training_opponent
+    else:
+        team2 = "state_agent"
+        team1 = training_opponent
+    
+    rollout(team1, team2, output_dir, record_state, record_video, iteration)
 
 # Rollout a number of games calling tournament runner -j (i.e. --parallel) using subprocess
-def rollout_many(num_rollouts, training_opponent="random", agent_team_num=1, output_dir=TRAINING_PATH):
+def rollout_many(team1="random", team2="random", output_dir=TRAINING_PATH, record_state=True, record_video=False, iteration=0):
 
     # Make output_dir if it doesn't exist
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    output_dir = os.path.join(output_dir, "reinforce_data.pkl")
+    # Construct the name of this rollout
+    rollout_name = "%0d_%s_v_%s" % (iteration, team1, team2)
 
     # Base run command
-    run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir]
+    run_cmd = ["python", "-m", "tournament.runner"]
+
+    # Add teams to run command
+    run_cmd += [team1, team2]
+    
+    if record_state:
+        state_output = os.path.join(output_dir, "%s.pkl" % rollout_name)
+        run_cmd += ["-s", state_output]
+
+    if record_video:
+        video_output = os.path.join(output_dir, "%s.mp4" % rollout_name)
+        run_cmd += ["-v", video_output]
+
     #run_cmd = ["python", "-m", "tournament.runner", "-s", output_dir, "-j", str(num_rollouts)]
-
-    # Set training opponent
-    if training_opponent == "random":
-        training_opponent = get_random_opponent()
-
-    # Rollout with state_agent on appropriate team
-    if agent_team_num == 1:
-        run_cmd += ["state_agent", training_opponent]
-    else:
-        run_cmd += [training_opponent, "state_agent"]
     
     # Invoke the run command
     output = subprocess.check_output(run_cmd)

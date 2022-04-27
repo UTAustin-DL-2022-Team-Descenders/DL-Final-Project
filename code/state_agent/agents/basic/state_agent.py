@@ -1,33 +1,32 @@
 import numpy as np
-from state_agent.agents.basic.action_network import load_model, save_model
-import torch
-import collections
+import torch, collections
+from .noise import ActionNetworkNoise
 from .action_network import *
-import random, copy
-import torch.nn.functional as F
+import random
 
 # Globals
 DEBUG_EN = False
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 # Hyperparameters
-OBJS_TOUCHING_DISTANCE_THRESHOLD = 4 # Pixel distance threshold to denote objects are touching
 ACTION_TENSOR_EPSILON_THRESHOLD = 100 # used in get_random_action for decaying exploration vs exploitation
-GOAL_LINE_Y_BUFFER = 2 # Pixel distance buffer to denote the puck is in a goal (to ensure reward is observed)
 
 # StateAgent Default values
 DISCOUNT_RATE_GAMMA = 0.9 # between 0 to 1
-STATE_CHANNELS = 31 # State Channels created by get_features
+STATE_CHANNELS = 39 # State Channels created by get_features
 ACTION_CHANNELS = 6 # One channel for each actions
 
+# StateAgent encapsulates ActionNetwork, CriticNetwork, Target Action/Critic Networks, ReplayBuffer,
+# Ornstein-Uhlenbeck Noise Object and ActionCriticNetworkTrainer to perform Deep deterministic policy gradient (DDPG)
+# DDPG was developed by these smart people: https://arxiv.org/pdf/1509.02971.pdf
 class StateAgent:
 
   MAX_MEMORY = 1000000 # Number of timesteps to memorize
-  BATCH_SIZE = 128 # Batch size for long term training
+  BATCH_SIZE = 64 # Batch size for long term training
 
   def __init__(self, input_channels=STATE_CHANNELS, output_channels=ACTION_CHANNELS, 
-                discount_rate=DISCOUNT_RATE_GAMMA, load_existing_model=False, optimizer="ADAM", lr=0.001,
-                logger=None, player_num=0, noise_std=0.01):
+                discount_rate=DISCOUNT_RATE_GAMMA, load_existing_model=False, optimizer="ADAM", actor_lr=0.0001,
+                critic_lr=0.001, logger=None, player_num=0):
 
     # number of games played
     self.n_games = 0 
@@ -39,7 +38,7 @@ class StateAgent:
     self.memory = collections.deque(maxlen=StateAgent.MAX_MEMORY)
 
     # Noise to add to ActionNetwork output 
-    self.noise = OUActionNoise(mean=np.zeros(1), std_deviation=float(noise_std) * np.ones(1))
+    self.noise = ActionNetworkNoise()
 
     # Try loading an existing action_net to continue training it
     if load_existing_model:
@@ -57,6 +56,7 @@ class StateAgent:
       self.critic_net = CriticNetwork(input_state_channels=STATE_CHANNELS, input_action_channels=ACTION_CHANNELS)
       self.critic_net.to(DEVICE)
 
+    # Create Target Action & Critic Networks
     self.target_action_net = ActionNetwork(input_channels=input_channels, output_channels=output_channels)
     self.target_action_net.to(DEVICE)
     self.target_critic_net = CriticNetwork(input_state_channels=STATE_CHANNELS, input_action_channels=ACTION_CHANNELS)
@@ -69,7 +69,7 @@ class StateAgent:
     # Initialize a trainer to perform network training
     self.trainer = ActionCriticNetworkTrainer(action_net=self.action_net, target_action_net=self.target_action_net,
                                               critic_net=self.critic_net, target_critic_net=self.target_critic_net,
-                                              discount_rate=discount_rate, lr=lr, optimizer=optimizer,
+                                              discount_rate=discount_rate, actor_lr=actor_lr, critic_lr=critic_lr, optimizer=optimizer,
                                               logger=logger)
   
   def copy_network_params(self, source_network, destination_network):
@@ -113,32 +113,29 @@ class StateAgent:
   def get_action_tensor(self, state_features):
     
     epsilon = ACTION_TENSOR_EPSILON_THRESHOLD - self.n_games
-    actions_min_bounds = torch.tensor((0, -1, 0, 0, 0, 0), device=DEVICE) # Minimum values of each action
-    actions_max_bounds = torch.tensor((1, 1, 1, 1, 1, 1), device=DEVICE) # maximum values of each action
 
     # Either take a random action (exploration)
     # or prediction action from the action_net (exploitation).
     # Likeihood of random action decays as number of games increases
 
+    # Put ActionNetwork in evaluation mode to turn off batchNorm forward feed
+    # restrictions
     self.action_net.eval()
+
+    # Unsqueeze a dimension to work with batchNorm in ActionNetwork
     state_features = torch.unsqueeze(state_features, 0)
+
+    # detach outputs from network to ensure we don't inadvertedly keep results in gradient graph
     action_tensor = self.action_net(state_features).detach()
 
+    # remove dimensional 0 via squeeze
     action_tensor = torch.squeeze(action_tensor, 0)
 
-    #noise = self.noise()
-    #action_tensor = action_tensor + torch.as_tensor(noise, dtype=torch.float32, device=DEVICE)
-    #action_tensor = torch.clamp(action_tensor, actions_min_bounds, actions_max_bounds)
+    if random.randint(0, 150) < epsilon:
+      noise = self.noise()
+      action_tensor = action_tensor + torch.as_tensor(noise, dtype=torch.float32, device=DEVICE)
+      action_tensor = torch.clamp(action_tensor, ACTION_VALUE_MINIMUMS, ACTION_VALUE_MAXIMUMS)
 
-    #if random.randint(0, 150) < epsilon:
-      
-      #action_tensor[0] = self.noise.sample(action_tensor[0])
-      #actions_min_bounds = torch.tensor((0, -1, 0, 0, 0, 0), device=DEVICE) # Minimum values of each action
-      #actions_max_bounds = torch.tensor((1, 1, 1, 1, 1, 1), device=DEVICE) # maximum values of each action
-      #action_tensor[0] += torch.tensor(self.ou_noise.sample(), device=DEVICE)
-      #action_tensor[0] = torch.clamp(action_tensor[0], actions_min_bounds, actions_max_bounds)
-
-    print("get_action_tensor - ", action_tensor)
     return action_tensor
   
 
@@ -160,53 +157,7 @@ class StateAgent:
                       device=DEVICE)
     return torch.unsqueeze(action_tensor, 0)
 
-class OUNoise:
-    """Ornstein-Uhlenbeck process."""
 
-    def __init__(self, size, mu=0., theta=0.15, sigma=0.1):
-        """Initialize parameters and noise process."""
-        self.mu = mu * np.ones(size)
-        self.theta = theta
-        self.sigma = sigma
-        self.reset()
-
-    def reset(self):
-        """Reset the internal state (= noise) to mean (mu)."""
-        self.state = copy.copy(self.mu)
-
-    def sample(self):
-        """Update internal state and return it as a noise sample."""
-        x = self.state
-        dx = self.theta * (self.mu - x) + self.sigma * np.array([np.random.randn() for i in range(len(x))])
-        self.state = x + dx
-        return self.state
-
-class OUActionNoise:
-    def __init__(self, mean, std_deviation, theta=0.15, dt=1e-2, x_initial=None):
-        self.theta = theta
-        self.mean = mean
-        self.std_dev = std_deviation
-        self.dt = dt
-        self.x_initial = x_initial
-        self.reset()
-
-    def __call__(self):
-        # Formula taken from https://www.wikipedia.org/wiki/Ornstein-Uhlenbeck_process.
-        x = (
-            self.x_prev
-            + self.theta * (self.mean - self.x_prev) * self.dt
-            + self.std_dev * np.sqrt(self.dt) * np.random.normal(size=self.mean.shape)
-        )
-        # Store x into x_prev
-        # Makes next noise dependent on current one
-        self.x_prev = x
-        return x
-
-    def reset(self):
-        if self.x_initial is not None:
-            self.x_prev = self.x_initial
-        else:
-            self.x_prev = np.zeros_like(self.mean)
 class Team:
     agent_type = 'state'
     
@@ -343,12 +294,13 @@ def get_features(player_state, team_state, opponent_states, puck_state, team_num
     opponent_team_num = 2 if team_num == 1 else 1
 
     # Collect features inside a dictionary
-    features_dict = {}
+    features_dict = collections.OrderedDict()
 
     # Get player features
     features_dict["player_kart_front"] = get_kart_front(player_state)
     features_dict["player_kart_center"] = get_kart_center(player_state)
     features_dict["player_kart_angle"] = get_obj1_to_obj2_angle(features_dict["player_kart_front"], features_dict["player_kart_center"])
+    features_dict["player_kart_velocity"] = get_kart_velocity(player_state)
 
     # Get puck features
     features_dict["puck_center"] = get_puck_center(puck_state)
@@ -369,6 +321,7 @@ def get_features(player_state, team_state, opponent_states, puck_state, team_num
     for opponent_id, opponent_state in enumerate(opponent_states):
       opponent_name = "opponent_%0d" % opponent_id
       features_dict["%s_center" % opponent_name] = opponent_center = get_kart_center(opponent_state)
+      features_dict["%s_velocity" % opponent_name] = get_kart_velocity(opponent_state)
       features_dict["player_to_%s_angle" % opponent_name] = player_to_opponent_angle = get_obj1_to_obj2_angle(features_dict["player_kart_center"], opponent_center)
       features_dict["player_to_%s_angle_difference" % opponent_name] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_center"], player_to_opponent_angle)
 
@@ -376,6 +329,7 @@ def get_features(player_state, team_state, opponent_states, puck_state, team_num
     for teammate_id, teammate_state in enumerate(team_state):
       teammate_name = "teammate_%0d" % teammate_id
       features_dict["%s_center" % teammate_name] = teammate_center = get_kart_center(teammate_state)
+      features_dict["%s_velocity" % teammate_name] = get_kart_velocity(teammate_state)
       features_dict["player_to_%s_angle" % teammate_name] = player_to_teammate_angle = get_obj1_to_obj2_angle(features_dict["player_kart_center"], teammate_center)
       features_dict["player_to_%s_angle_difference" % teammate_name] = get_obj1_to_obj2_angle_difference(features_dict["player_kart_center"], player_to_teammate_angle)
 
@@ -435,6 +389,9 @@ def get_obj1_to_obj2_angle_difference(object1_angle, object2_angle):
   angle_difference = (object1_angle - object2_angle) / np.pi
   return limit_period(angle_difference)
 
+def get_kart_velocity(kart_state):
+  return torch.tensor(kart_state["kart"]["velocity"], dtype=torch.float32)[[0, 2]]
+
 # Assumes there are always two teams (0 and 1)
 # Team 1 -> Goal 0; Team 2 -> Goal 1
 def get_goal_line_index_from_team_num(team_num):
@@ -454,110 +411,6 @@ def get_action_dictionary_from_network_output(network_output):
                 fire=network_output[4]  > 0.5,
                 nitro=network_output[5] > 0.5
                 )
-
-
-# TODO: Make this reward function more robust
-def get_reward(state_dictionaries, actions, team_num, player_num):
-
-  DEBUG_EN = True
-  reward = 0
-
-  # Get agent & opponent dictionary key info
-  player_team_key = "team%0d_state" % team_num
-  opponent_team_num = 2 if team_num == 1 else 1
-  opponent_team_key = "team%0d_state" % opponent_team_num
-
-  # Get player, team, and opponent state dictionaries
-  player_and_team_states = state_dictionaries[player_team_key]
-  player_state = player_and_team_states[player_num]
-  team_state = player_and_team_states[:player_num] + player_and_team_states[player_num+1:]
-  opponent_states = state_dictionaries[opponent_team_key]
-
-  # Get puck_state
-  puck_state = state_dictionaries["soccer_state"]
-
-  player_goal_line_index = get_goal_line_index_from_team_num(team_num)
-  opponent_goal_line_index = get_goal_line_index_from_team_num(opponent_team_num)
-
-  opponent_goal_center = get_team_goal_line_center(puck_state, opponent_goal_line_index)
-  player_goal_center = get_team_goal_line_center(puck_state, player_goal_line_index)
-
-  puck_center = get_puck_center(puck_state)
-  kart_center = get_kart_center(player_state)
-
-  kart_to_puck_distance = get_obj1_to_obj2_distance(kart_center, puck_center)
-  puck_to_opponent_goal_distance = get_obj1_to_obj2_distance(opponent_goal_center, puck_center)
-  puck_to_player_goal_distance = get_obj1_to_obj2_distance(player_goal_center, puck_center)
-  
-  #if DEBUG_EN:
-    #print("get_reward - kart_to_puck_distance ", kart_to_puck_distance)
-    #print("get_reward - inverse kart_to_puck_distance ", 10*(1/kart_to_puck_distance))
-    #print("get_reward - puck_to_opponent_goal_distance ", puck_to_opponent_goal_distance)
-    #print("get_reward - inverse puck_to_opponent_goal_distance ", 10*(1/puck_to_opponent_goal_distance))
-    #print("get_reward - inverse puck_to_player_goal_distance ", 10*(1/puck_to_player_goal_distance))
-
-
-  # Increase reward as puck gets closer to the opponent goal
-  reward += (1/puck_to_opponent_goal_distance)*10
-
-  # Decrease reward as puck get closer to player goal
-  reward -= (1/puck_to_player_goal_distance)*10
-
-  # Increase reward as kart gets closer to the puck
-  reward += (1/kart_to_puck_distance)*10
-
-  if is_touching(kart_center, puck_center):
-    reward += 10
-    if DEBUG_EN:
-      print("player is touching the puck")
-
-  if is_puck_in_team_goal(puck_state, team_num):
-    reward -= 100
-    if DEBUG_EN:
-      print("puck is in agent goal")
-
-  if is_puck_in_team_goal(puck_state, opponent_team_num):
-    reward += 100
-    if DEBUG_EN:
-      print("puck is in opponent goal")
-  
-  #return torch.tensor(reward, dtype=torch.float32, device=DEVICE)
-  return reward.clone().detach().to(DEVICE)
-
-def is_touching(object1_center, object2_center, threshold=OBJS_TOUCHING_DISTANCE_THRESHOLD):
-  return get_obj1_to_obj2_distance(object1_center, object2_center) < threshold
-
-def is_puck_in_team_goal(puck_state, team_num):
-
-  puck_center = get_puck_center(puck_state)
-  team_goal = get_goal_line_index_from_team_num(team_num)
-  team_goal_line = get_team_goal_line(puck_state, team_goal)
-
-  # The puck is in goal if the puck_center is in between the two sides of the goal
-  # and past the Y axis of the goal line minus a small buffer
-
-  if team_num == 1:
-
-    # puck is in between goal posts
-    if team_goal_line[0][0] <= puck_center[0] <= team_goal_line[1][0]:
-
-      # if puck is at or above team1 goal line (-64.5 + buffer)
-      if puck_center[1] <= (team_goal_line[0][1] + GOAL_LINE_Y_BUFFER):
-        return True
-  
-  else: # team_num == 2
-    
-    # puck is in between goal posts
-    if team_goal_line[1][0] <= puck_center[0] <= team_goal_line[0][0]:
-
-      # if puck is at or below team2 goal line (64.5 - buffer)
-      if puck_center[1] >= (team_goal_line[0][1] - GOAL_LINE_Y_BUFFER):
-          return True
-      
-  return False
-
-def get_obj1_to_obj2_distance(object1_center, object2_center):
-  return F.pairwise_distance(object1_center, object2_center)
 
 # Get the score of a team using team_num
 def get_score(puck_state, team_num):

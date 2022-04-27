@@ -3,17 +3,24 @@ import torch.nn.functional as F
 from torch.distributions import Bernoulli
 import numpy as np
 
-# Assumes extract_features returns 31 channels
-INPUT_CHANNELS = 31
+DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+
+# Assumes get_features returns 39 channels
+INPUT_CHANNELS = 39
 
 # Assumes network outputs 6 different actions
 # Output channel order: [acceleration, steer, brake, drift, fire, nitro]
 # Boolean outputs will be thresholded by 0.5
 OUTPUT_CHANNELS = 6
 
+ACTION_VALUE_MINIMUMS = torch.tensor((0, -1, 0, 0, 0, 0), device=DEVICE) # minimum value of each action
+ACTION_VALUE_MAXIMUMS = torch.tensor((1, 1, 1, 1, 1, 1), device=DEVICE) # maximum values of each action
+
 HIDDEN_LAYER_1_SIZE = 400
 HIDDEN_LAYER_2_SIZE = 300
 
+# ActionNetwork is the policy network for outputting actions given
+# input state
 class ActionNetwork(torch.nn.Module):
 
     class Block(torch.nn.Module):
@@ -21,12 +28,14 @@ class ActionNetwork(torch.nn.Module):
             super().__init__()
 
             self.linear = torch.nn.Linear(n_input, n_output)
-            self.bn =  torch.nn.BatchNorm1d(n_output)
+            # self.bn =  torch.nn.BatchNorm1d(n_output)
+            self.bn =  torch.nn.LayerNorm(n_output)
 
         def forward(self, x):
             return F.relu(self.bn(self.linear(x)))
 
-    def __init__(self, input_channels=INPUT_CHANNELS, hidden_layer_channels=[HIDDEN_LAYER_1_SIZE, HIDDEN_LAYER_2_SIZE], output_channels=OUTPUT_CHANNELS):
+    def __init__(self, input_channels=INPUT_CHANNELS, hidden_layer_channels=[HIDDEN_LAYER_1_SIZE, HIDDEN_LAYER_2_SIZE], output_channels=OUTPUT_CHANNELS,
+                ):
         super().__init__()
 
         layers = []
@@ -41,25 +50,23 @@ class ActionNetwork(torch.nn.Module):
         self.main_network = torch.nn.Sequential(*layers)
 
         self.acceleration_net = torch.nn.Linear(input_channels, 1)
-        init_uniform(self.acceleration_net, -3e-3, 3e-3)
+        init_uniform(self.acceleration_net)
 
+        # TODO: turn off bias for steering
         self.steering_net = torch.nn.Linear(input_channels, 1)
-        init_uniform(self.steering_net, -3e-3, 3e-3)
+        init_uniform(self.steering_net)
 
         self.brake_net = torch.nn.Linear(input_channels, 1)
-        init_uniform(self.brake_net, -3e-3, 3e-3)
+        init_uniform(self.brake_net)
 
         self.drift_net = torch.nn.Linear(input_channels, 1)
-        init_uniform(self.drift_net, -3e-3, 3e-3)
+        init_uniform(self.drift_net)
 
         self.fire_net = torch.nn.Linear(input_channels, 1)
-        init_uniform(self.fire_net, -3e-3, 3e-3)
+        init_uniform(self.fire_net)
 
         self.nitro_net = torch.nn.Linear(input_channels, 1)
-        init_uniform(self.nitro_net, -3e-3, 3e-3)
-
-        #layers.append(torch.nn.Linear(input_channels, output_channels))
-        #self.network = torch.nn.Sequential(*layers)
+        init_uniform(self.nitro_net)
 
     def forward(self, x):
 
@@ -76,6 +83,8 @@ class ActionNetwork(torch.nn.Module):
 
         return output
 
+# CriticNetwork outputs a quality value (Q value) given
+# input states and actions from a policy. A higher Q value denotes a "good" policy
 class CriticNetwork(torch.nn.Module):
 
     class Block(torch.nn.Module):
@@ -84,7 +93,8 @@ class CriticNetwork(torch.nn.Module):
 
             self.network = torch.nn.Sequential(
                 torch.nn.Linear(n_input, n_output),
-                torch.nn.BatchNorm1d(n_output),
+                #torch.nn.BatchNorm1d(n_output),
+                torch.nn.LayerNorm(n_output),
                 torch.nn.ReLU()
             )
 
@@ -96,27 +106,27 @@ class CriticNetwork(torch.nn.Module):
 
         layers = []
 
-        self.layer1 = CriticNetwork.Block(input_state_channels + input_action_channels, HIDDEN_LAYER_1_SIZE)
-        self.layer2 = CriticNetwork.Block(HIDDEN_LAYER_1_SIZE, HIDDEN_LAYER_2_SIZE)
+        self.layer1 = CriticNetwork.Block(input_state_channels, HIDDEN_LAYER_1_SIZE)
+        self.layer2 = CriticNetwork.Block(HIDDEN_LAYER_1_SIZE+input_action_channels, HIDDEN_LAYER_2_SIZE)
         self.layer3 = torch.nn.Linear(HIDDEN_LAYER_2_SIZE, 1)
 
         self.network = torch.nn.Sequential(*layers)
 
     def forward(self, states, actions):
 
-        states_actions = torch.cat([states, actions], 1)
-        out = self.layer1(states_actions)
-        out = self.layer2(out)
+        out = self.layer1(states)
+        out = self.layer2(torch.cat([out, actions], 1))
         out = self.layer3(out)
         return out
 
-# Performs Reinforcement training for an ActionNetwork.
-# Using Deep Q Learning
+# Performs Reinforcement training for an ActionNetwork and CriticNetwork
+# using Deep Deterministic Policy Gradient.
 class ActionCriticNetworkTrainer:
     def __init__(self, action_net, target_action_net, critic_net, target_critic_net, 
-                    lr=0.001, discount_rate=0.9, optimizer="ADAM", tau=0.001,
+                    actor_lr=0.0001, critic_lr=0.001, discount_rate=0.9, optimizer="ADAM", tau=0.001,
                     logger=None):
-        self.lr = lr
+        self.actor_lr = actor_lr
+        self.critic_lr = critic_lr
         self.discount_rate = discount_rate
         self.action_net = action_net
         self.target_action_net = target_action_net
@@ -127,11 +137,11 @@ class ActionCriticNetworkTrainer:
 
         # Select optimizer
         if optimizer.upper() == "ADAM":
-            self.action_optimizer = torch.optim.Adam(action_net.parameters(), lr=self.lr)
-            self.critic_optimizer = torch.optim.Adam(critic_net.parameters(), lr=self.lr)
+            self.action_optimizer = torch.optim.Adam(action_net.parameters(), lr=self.actor_lr)
+            self.critic_optimizer = torch.optim.Adam(critic_net.parameters(), lr=self.critic_lr)
         else:
-            self.action_optimizer = torch.optim.SGD(action_net.parameters(), lr=self.lr, momentum=0.9)
-            self.critic_optimizer = torch.optim.SGD(critic_net.parameters(), lr=self.lr, momentum=0.9)
+            self.action_optimizer = torch.optim.SGD(action_net.parameters(), lr=self.actor_lr, momentum=0.9)
+            self.critic_optimizer = torch.optim.SGD(critic_net.parameters(), lr=self.critic_lr, momentum=0.9)
         
         self.loss_module = torch.nn.MSELoss()
 
@@ -155,6 +165,8 @@ class ActionCriticNetworkTrainer:
 
         self.action_net.train()
         self.critic_net.train()
+        self.target_action_net.eval()
+        self.target_critic_net.eval()
 
         # Normalize rewards
         #reward = (reward - reward.mean()) / (reward.std() + 0.0001)
@@ -227,7 +239,7 @@ def init_fanin(tensor):
     v = 1.0 / np.sqrt(fanin)
     torch.nn.init.uniform_(tensor, -v, v)
 
-def init_uniform(tensor, lo, hi):
+def init_uniform(tensor, lo=-3e-4, hi=3e-4):
     torch.nn.init.uniform_(tensor.weight, lo, hi)
     torch.nn.init.uniform_(tensor.bias, lo, hi)
 

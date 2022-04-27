@@ -1,9 +1,11 @@
 import subprocess
+from numpy import record
 import torch
 import torch.utils.tensorboard as tb
 import os, random
 from ..utils import *
 from ..agents.basic.state_agent import *
+from ..agents.basic.reward import get_reward
 
 LOGDIR_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'logs')
 TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), '..', 'reinforce_data')
@@ -16,7 +18,8 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--logdir', default=LOGDIR_PATH, help="Log Directory for tensorboard logs. *Currently not being used*")
-    parser.add_argument('-lr', '--learning_rate', type=float, default=0.001, help="Learning rate of the model")
+    parser.add_argument('-alr', '--actor_learning_rate', type=float, default=0.0001, help="Learning rate of the Actor model")
+    parser.add_argument('-clr', '--critic_learning_rate', type=float, default=0.001, help="Learning rate of the Critic model")
     parser.add_argument('-g', '--discount_rate', type=float, default=0.99, help="Discount Rate for Reinforcement learning")
     parser.add_argument('-opt', '--optimizer', type=str, default="ADAM", choices=["ADAM", "SGD"], help="Name of Optimizer to use for training. Supported options: 'ADAM', 'SGD'")
     parser.add_argument('-ep', '--epochs', type=int, default=1, help="Number of epochs to train model over")
@@ -25,7 +28,6 @@ def main():
     parser.add_argument('-to', '--training_opponent', type=str, default="random", choices=["random", "state_agent"]+TRAINING_OPPONENT_LIST, help="Training opponent for state_agent per epoch. Defaults to random opponent")
     parser.add_argument('-at', '--agent_team', type=int, default=0, choices=[0,1,2], help="Team number for State agent per epoch. Defaults to 0 that will randomize team number per epoch")
     parser.add_argument('-rv', '--record_video_cadence', type=int, default=10, help="Number of games between recording video while training")
-    parser.add_argument('-std', '--noise_std', type=int, default=0.01, help="Standard Deviation for normalized exploration noise")
 
     args = parser.parse_args()
 
@@ -34,9 +36,8 @@ def main():
 
 def train_reinforce(args):
 
-    # Base case: negative goals scored (should always do better)
-    best_score = -1
-    best_reward = float("-inf")
+    # For keeping track of game rewards
+    game_rewards = []
 
     train_logger = None
     if args.logdir is not None:
@@ -45,18 +46,19 @@ def train_reinforce(args):
     # Create StateAgent
     state_agent = StateAgent(load_existing_model=args.load_model, 
                         optimizer=args.optimizer, 
-                        lr=args.learning_rate,
+                        actor_lr=args.actor_learning_rate,
+                        critic_lr=args.critic_learning_rate,
                         discount_rate=args.discount_rate,
                         logger=train_logger,
-                        player_num=0,
-                        noise_std=args.noise_std
+                        player_num=0
                         )
    
-
     global_step = 0
 
     for _ in range(args.epochs):
-    #while True:
+
+        # Increment state agent games
+        state_agent.n_games += 1
 
         # Set training opponent so it's visible to end of game results print
         training_opponent = args.training_opponent if args.training_opponent != "random" else get_random_opponent()
@@ -65,18 +67,21 @@ def train_reinforce(args):
         agent_team_num = args.agent_team if args.agent_team != 0 else random.choice([1,2])
         opponent_team_num = 2 if agent_team_num == 1 else 1
 
-        # Clean out old pkl files and rollout a number of games 
-        # and save recordings into pickle files
-        clean_pkl_files_and_rollout_many(args.n_trajectories, 
-                                        training_opponent=training_opponent, 
-                                        agent_team_num=agent_team_num,
-                                        output_dir=TRAINING_PATH)
-
         # Periodically record video to see how the agent is doing
-        if state_agent.n_games > 0 and state_agent.n_games % args.record_video_cadence == 0:
-            rollout_evaluation(agent_team_num, training_opponent, state_agent.n_games)
+        record_video = False
+        if state_agent.n_games % args.record_video_cadence == 0:
+            record_video = True
+        
+        # Clean out old pkl files and rollout a game
+        # and save recordings into pickle files
+        clean_pkl_files_and_rollout_many(training_opponent=training_opponent, 
+                                        agent_team_num=agent_team_num,
+                                        output_dir=TRAINING_PATH,
+                                        record_state=True,
+                                        record_video=record_video,
+                                        iteration=state_agent.n_games)
+        
 
-            
         training_pkl_file_list = get_pickle_files(TRAINING_PATH)
 
         # Iterate over game trajectories
@@ -118,7 +123,7 @@ def train_reinforce(args):
                 curr_state_actions = state_agent.get_action_tensor(curr_state_features)
 
                 # Get the reward for current state timestep
-                reward = get_reward(next_state_dictionaries, curr_state_actions, agent_team_num, state_agent.player_num) 
+                reward = get_reward(curr_state_dictionaries, next_state_dictionaries, curr_state_actions, agent_team_num, state_agent.player_num) 
 
                 # Add this reward to this game's reward total
                 game_reward += reward
@@ -145,7 +150,7 @@ def train_reinforce(args):
                 curr_state_actions = state_agent.get_action_tensor(curr_state_features)
 
                 # Get the reward for current state timestep
-                reward = get_reward(next_state_dictionaries, curr_state_actions, agent_team_num, state_agent.player_num) 
+                reward = get_reward(curr_state_dictionaries, next_state_dictionaries, curr_state_actions, agent_team_num, state_agent.player_num) 
 
                 # Add this reward to this game's reward total
                 game_reward += reward
@@ -156,44 +161,21 @@ def train_reinforce(args):
                 # Train over a batch of timesteps at the end of the game
                 state_agent.train_batch_timesteps(global_step)
 
-                # Increment state agent games
-                state_agent.n_games += 1
-
                 # get the final score
                 agent_score = get_score(state_data_dictionaries["soccer_state"], agent_team_num)
                 opponent_score = get_score(state_data_dictionaries["soccer_state"], opponent_team_num)
 
-                print("Game %0d - StateAgent (Team %0d) scored %0d versus %s (Team %0d) scored %0d reward %0d" % 
-                        (state_agent.n_games, agent_team_num, agent_score, training_opponent, opponent_team_num, opponent_score, game_reward))
+                game_rewards.append(game_reward.detach().cpu().numpy())
+
+                print("Game %0d - StateAgent (Team %0d) scored %0d versus %s (Team %0d) scored %0d reward %0d (avg 10 game reward %0d)" % 
+                        (state_agent.n_games, agent_team_num, agent_score, training_opponent, opponent_team_num, opponent_score, game_reward, np.mean(game_rewards[-10:])))
 
                 train_logger.add_scalar("total reward", game_reward, global_step=global_step)
+                train_logger.add_scalar("avg reward", np.mean(game_rewards[-10:]), global_step=global_step)
 
-                # Save this model if the reward improved
-                if game_reward > best_reward:
-                    best_reward = game_reward
-                    save_model(state_agent.action_net)
-                    save_model(state_agent.critic_net, "critic")
-                    print("best_reward improved to %0d. Saving state_agent & critic" % best_reward)
-                # Save this model if the score improved (or stayed the same)
-                #if agent_score >= best_score:
-                #    best_score = agent_score
-                #    save_model(state_agent.action_net)
-                #    if agent_score == 3:
-                #        print("Wow the agent scored 3 goals! Take the dub and get out of the casino")
-                #        return
-
-def rollout_evaluation(agent_team_num, training_opponent, n_game):
-
-    if agent_team_num == 1:
-        team1 = "state_agent"
-        team2 = training_opponent
-    else:
-        team2 = "state_agent"
-        team1 = training_opponent
-
-    rollout(team1, team2, os.path.abspath(os.path.dirname(__file__)), record_state=False, record_video=True, iteration=n_game)
-    print("Game %0d recorded" % n_game)
-
+                # Save the model after every game
+                save_model(state_agent.action_net)
+                save_model(state_agent.critic_net, "critic")
 
 
 if __name__ == '__main__':
