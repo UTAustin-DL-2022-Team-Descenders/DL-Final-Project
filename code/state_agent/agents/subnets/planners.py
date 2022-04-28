@@ -1,8 +1,9 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/25/2022
 
-from turtle import forward
 import torch
+import numpy as np
+from torch.nn import functional as F
 
 from .base_actors import BaseActor, LinearForNormalAndStd, CategoricalSelection
 from .rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, steering_angle_reward
@@ -11,7 +12,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
     LABEL_INDEX = 1
     FEATURES = 3
-    CASES = 1
+    CASES = 2
 
     def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
         # Steering action_net
@@ -29,7 +30,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         #   delta speed
         #   target speed 
         
-        super().__init__(CategoricalSelection(self.LABEL_INDEX, self.FEATURES, n_inputs=self.LABEL_INDEX, n_outputs=self.CASES, bias=False) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        super().__init__(CategoricalSelection(self.LABEL_INDEX, self.FEATURES, n_inputs=self.LABEL_INDEX, n_outputs=self.CASES, n_hidden=1, bias=False) if action_net is None else action_net, train=train, sample_type="categorical")
         self.speed_net = speed_net
         self.steering_net = steering_net
 
@@ -65,6 +66,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         (c_pp_dist, c_goal_dist, c_pp_angle, c_ppg_angle, *_) = selected_features_curr
         (n_pp_dist, n_goal_dist, n_pp_angle, n_ppg_angle, *_) = selected_features_next
 
+        reward = 0
+
         # is the player next to the puck?
         if c_pp_dist >= 0:            
 
@@ -74,8 +77,9 @@ class PlayerPuckGoalPlannerActor(BaseActor):
                 n_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
                 1.0, MAX_SOCCER_DISTANCE_REWARD) if action == 0 else -1
             """
-            reward = c_pp_dist if greedy_action[0] == 0 else -c_pp_dist
-        else:
+            reward = c_pp_dist if greedy_action == 0 else -c_pp_dist
+        
+        elif c_pp_dist < 0:
             """
             reward = continuous_causal_reward(
                 c_goal_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
@@ -85,17 +89,18 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             #    c_ppg_angle, 
             #    n_ppg_angle) if action == 1 else -1
             """
-            reward = c_pp_dist if greedy_action[0] == 1 else -c_pp_dist
+            reward = c_pp_dist if greedy_action == 1 else -c_pp_dist
 
-        #print("planner reward ", action, reward, c_pp_dist)
-    
+        #print("planner reward ", greedy_action, reward, c_pp_dist)
+
+        # return rewards for each case
         return reward
     
     def extract_greedy_action(self, action, f):        
         output = self.action_net(f)
         # the greedy action here is to only train the categorical index        
-        return self.action_net.get_index(output, self.action_net.get_labels(f))
-
+        return self.action_net.get_index(output)
+        
     def select_features(self, features, features_vec):
         pp_dist = features.select_player_puck_distance(features_vec)
         goal_dist = features.select_puck_goal_distance(features_vec)

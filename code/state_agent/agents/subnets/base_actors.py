@@ -2,7 +2,7 @@
 # Creation Date: 4/19/2022
 
 import torch
-from torch.distributions import Bernoulli, Normal, Categorical
+from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
 
 def new_action_net(n_outputs=1, type="linear_tanh"):
     if type == "linear_sigmoid":
@@ -47,7 +47,7 @@ class LinearNetwork(BaseNetwork):
         layers = [
             #torch.nn.BatchNorm1d(3*5*3),
             torch.nn.Linear(n_inputs, n_hidden, bias=bias),
-            torch.nn.ReLU(),
+            torch.nn.Tanh(),
             torch.nn.Linear(n_hidden, n_outputs, bias=bias)            
         ]
         if activation:
@@ -79,7 +79,15 @@ class LinearWithTanh(LinearNetwork):
             return output
         else:
             return self.net(x)
-        
+
+class LinearWithSoftmax(LinearNetwork):
+
+    def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False) -> None:        
+        super().__init__(torch.nn.Softmax, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias)
+
+    def forward(self, x):
+        return self.net(x)
+
 class LinearForNormalAndStd(LinearNetwork):
 
     def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False) -> None:        
@@ -95,11 +103,11 @@ class LinearForNormalAndStd(LinearNetwork):
         else:
             return torch.concat([output[:, 0:self.n_outputs//2], torch.abs(output[:, self.n_outputs//2:self.n_outputs])], dim=1)
 
-class CategoricalSelection(SingleLinearNetwork):
+class CategoricalSelection(LinearNetwork):
     
     def __init__(self, index_start, n_features, **kwargs) -> None:        
-        # need double the number of outputs for mean and std        
-        super().__init__(**kwargs)
+        # need double the number of outputs for mean and std  
+        super().__init__(None, **kwargs)
         self.n_features = n_features
         self.index_start = index_start
 
@@ -122,13 +130,13 @@ class CategoricalSelection(SingleLinearNetwork):
     def get_labels(self, x):
         return x[self.index_start:].view(-1, self.n_features)
 
-    def get_index(self, input, y):
-        return (input > 0).long() #torch.argmax(input, dim=0)        
+    def get_index(self, input):
+        return torch.argmax(input, dim=0)        
 
     def choose(self, index, x):
         y = self.get_labels(x)
     
-        index = self.get_index(index, y).expand([1, y.shape[1]])
+        index = self.get_index(index).expand([1, y.shape[1]])
 
         # take the best choice between the given labels
         output = torch.gather(y, dim=0, index=index).squeeze()
@@ -153,6 +161,8 @@ class BaseActor:
             return self.sample_normal(*args)
         elif self.sample_type == "categorical":
             return self.sample_categorical(*args)
+        elif self.sample_type == "one_hot_categorical":
+            return self.sample_one_hot_categorical(*args)
         raise Exception("Unknown sample type")
 
     def log_prob(self, *args, actions):
@@ -167,8 +177,14 @@ class BaseActor:
             dist = Normal(*args)
             return dist.log_prob(actions)
         elif self.sample_type == "categorical":
-            dist = Categorical(probs=input)
+            dist = Categorical(probs=input) if self.action_net.activation != None else Categorical(logits=input)
             return dist.log_prob(actions)
+        elif self.sample_type == "one_hot_categorical":
+            dist = OneHotCategorical(probs=input) if self.action_net.activation != None else OneHotCategorical(logits=input)
+            
+            value = dist.log_prob(actions)
+            print("one hot probs", actions, value)
+            return value
         raise Exception("Unknown sample type")
 
     def sample_bernoulli(self, output):
@@ -186,7 +202,17 @@ class BaseActor:
         return output
 
     def sample_categorical(self, probs):
-        output = Categorical(probs=probs).sample()
+        if self.action_net.activation != None:
+            output = OneHotCategorical(probs=probs).sample()
+        else:
+            output = Categorical(logits=probs).sample()
+        return output
+
+    def sample_one_hot_categorical(self, probs):
+        if self.action_net.activation != None:
+            output = OneHotCategorical(probs=probs).sample()
+        else:
+            output = OneHotCategorical(logits=probs).sample()
         return output
 
     def select_features(self, state_features):
