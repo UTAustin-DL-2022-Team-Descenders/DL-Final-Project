@@ -40,6 +40,7 @@ class SoccerReinforcementConfiguration:
         self.extract_trajectory = raw_trajectory
         self.extract_action = get_player_action
         self.agent = Agent      
+        self.rollout_initializer = None  
 
 class TournamentReinforcementConfiguration:
 
@@ -51,15 +52,19 @@ class TournamentReinforcementConfiguration:
         self.extract_trajectory = raw_trajectory_to_player_trajectory
         self.extract_action = get_player_action_tourney
         self.agent = Agent       
+        self.rollout_initializer = None
 
 
 configuration = SoccerReinforcementConfiguration()
 
 class Context():
     
-    def __init__(self) -> None:
+    def __init__(self, actions=None, trajectories=None, rewards=None) -> None:
         self.score = None
         self.action_net = None
+        self.actions=actions.detach().numpy()
+        self.rewards=rewards.detach().numpy()
+        self.trajectories=trajectories
 
 def reinforce(
             actor, 
@@ -71,7 +76,8 @@ def reinforce(
             n_validations = 20,
             n_steps=600,
             batch_size = 128,
-            T = 20
+            T = 20,
+            epoch_post_process=None
 ):
         
     slice_net = list(filter(lambda a: a != actor, actors))
@@ -80,8 +86,10 @@ def reinforce(
     for epoch in range(n_epochs):
 
         # perform the rollouts 
+        actor.action_net.train()
         agents = [configuration.agent(*slice_net, actor, train=True) for i in range(n_trajectories)]
-        trajectories = rollout_many(agents, mode=configuration.mode, randomize=True, n_steps=n_steps)
+        trajectories = rollout_many(agents, mode=configuration.mode, randomize=True, initializer=configuration.rollout_initializer, n_steps=n_steps)
+        actor.action_net.eval()
         
         context = reinforce_epoch(
             agents, 
@@ -105,6 +113,9 @@ def reinforce(
             epoch=epoch,            
             context=context
         )
+
+        if epoch_post_process:
+            epoch_post_process(actor, context)
 
 
     return context.action_net if context else None
@@ -171,7 +182,7 @@ def reinforce_epoch(
             greedy_action = actor.extract_greedy_action(action, features_vec)
 
             reward = actor.reward(
-                action,
+                greedy_action,
                 features[it + i],
                 features[it + min(i + T, len(trajectory)-1)]
             )
@@ -196,7 +207,8 @@ def reinforce_epoch(
     print(returns)
     
     # enable this if not using discrete rewards! 
-    #returns = (returns - returns.mean()) / returns.std()
+    #print(returns.mean(), returns.std())
+    #returns = (returns - returns.mean()) / (returns.std() + 0.00001)
     avg_expected_log_return = []
     for it in range(iterations):
         batch_ids = torch.randint(0, len(returns), (batch_size,))
@@ -210,13 +222,18 @@ def reinforce_epoch(
         expected_log_return = (log_prob.squeeze()*batch_returns).mean()
         optim.zero_grad()
         (-expected_log_return).backward()
+        #actor.check_grad()
         optim.step()
         avg_expected_log_return.append(float(expected_log_return))           
         
 
     action_net.eval()
         
-    return context if context else Context()
+    return context if context else Context(
+        actions=actions,
+        rewards=returns,
+        trajectories=trajectories
+    )
 
 def validate_epoch(     
     actor,
@@ -251,7 +268,7 @@ def train(
     trajectories,  
     context=None
 ):
-    return reinforce_epoch(team.agent, team.get_training_actor(), trajectories, epoch=epoch, context=context)
+    return reinforce_epoch(team.agent, team.get_training_actor(), trajectories, epoch=epoch, context=context)[0]
 
 def validate(
     team,

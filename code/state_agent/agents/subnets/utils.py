@@ -84,14 +84,18 @@ class Rollout:
         controller = PlayerConfig.Controller.AI_CONTROL if is_ai else PlayerConfig.Controller.PLAYER_CONTROL
         return PlayerConfig(controller=controller, team=team_id, kart=kart)
 
-    def __call__(self, agent, n_steps=600, randomize=False, **kwargs):
+    def __call__(self, agent, n_steps=600, randomize=False, initializer=None, **kwargs):
         torch.set_num_threads(1)
         self.race.restart()
         self.race.step()
         data = []
 
         world_info = pystk.WorldState()    
-        self.initialize_state(world_info, randomize=randomize, **kwargs)
+        if initializer:
+            initializer(world_info, randomize=randomize, **kwargs)
+        else:
+            self.initialize_state(world_info, randomize=randomize, **kwargs)
+
         world_info.update()
     
         previous_score_sum = np.sum(world_info.soccer.score)
@@ -154,7 +158,8 @@ def show_video_soccer(data, fps=30):
         image_to_edit.text((10, 40), "drift: {}".format(action.drift))         
         image_to_edit.text((10, 50), "brake: {}".format(action.brake))         
         image_to_edit.text((10, 60), "distance: {}".format(distance))         
-        image_to_edit.text((10, 70), "angle diff: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)))         
+        image_to_edit.text((10, 70), "angle puck: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)))         
+        image_to_edit.text((10, 80), "angle goal: {}".format(soccer_feature_extractor.select_player_goal_angle(feature)))         
         images.append(np.array(img))
 
     for img, action, distance, feature, speed in zip(frames_map, actions, distances, features, speeds):
@@ -196,9 +201,11 @@ def show_graph(data):
 
 def show_trajectory_histogram(trajectories, metric, min=0, max=1000, bins=10):
     # histogram of trajectory overall scoring distribution
-    scores = [metric(t[-1]["kart_info"]) for t in trajectories]
+    scores = np.array([
+        [metric(s["kart_info"], s["soccer_state"]) for s in t] for t in trajectories
+    ]).flatten()
     scores = np.clip(scores, min, max)
-    plt.hist(scores, range(min, max, (max - min) // bins), density=True)
+    plt.hist(scores, range(min, max, (max - min) // bins))
     plt.show()
 
 def show_steering_graph(data):

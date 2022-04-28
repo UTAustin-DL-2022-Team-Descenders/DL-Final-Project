@@ -1,16 +1,61 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/25/2022
 
+from turtle import forward
 import torch
 
-from state_agent.agents.subnets.features import cart_speed
 from .base_actors import BaseActor, LinearForNormalAndStd, CategoricalSelection
-from .rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, PUCK_RADIUS, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, steering_angle_reward
+from .rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, steering_angle_reward
+
+class ChoiceLinearNetwork(torch.nn.Module):
+    
+    def __init__(self, index_start, n_features, **kwargs) -> None:        
+        # need double the number of outputs for mean and std        
+        super().__init__(**kwargs)
+        self.n_features = n_features
+        self.index_start = index_start
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(1, 1, bias=False),
+            torch.nn.ReLU()
+        )
+        self.activation = None
+
+
+    def forward(self, x):        
+
+        if x.dim() == 1:
+            input = x[0:self.index_start]
+        else:
+            input = x[:,0:self.index_start]
+
+        output = self.net(input)
+        if not self.training:
+            output = self.choose(output, x)                            
+                
+        return output
+
+    def get_labels(self, x):
+        return x[self.index_start:].view(-1, self.n_features)
+        
+    def get_index(self, input, y):
+        return (input > 0).long() #torch.argmax(input, dim=0)
+        
+
+    def choose(self, index, x):
+        y = self.get_labels(x)
+    
+        index = self.get_index(index, y).expand([1, y.shape[1]])
+
+        # take the best choice between the given labels
+        output = torch.gather(y, dim=0, index=index).squeeze()
+
+        return output
 
 class PlayerPuckGoalPlannerActor(BaseActor):
 
-    LABEL_INDEX = 5
+    LABEL_INDEX = 1
     FEATURES = 3
+    CASES = 1
 
     def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
         # Steering action_net
@@ -28,7 +73,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         #   delta speed
         #   target speed 
         
-        super().__init__(CategoricalSelection(self.LABEL_INDEX, self.FEATURES, n_inputs=5, n_outputs=2) if action_net is None else action_net, train=train, sample_type="categorical")
+        super().__init__(action_net if action_net else ChoiceLinearNetwork(self.LABEL_INDEX, self.FEATURES), train=train, sample_type="bernoulli")
+        #super().__init__(CategoricalSelection(self.LABEL_INDEX, self.FEATURES, n_inputs=self.LABEL_INDEX, n_outputs=self.CASES, bias=False) if action_net is None else action_net, train=train, sample_type="bernoulli")
         self.speed_net = speed_net
         self.steering_net = steering_net
 
@@ -41,11 +87,13 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
         if self.train is not None:
             train = self.train
+
+        #assert(self.action_net.training == train)            
         if train:       
             # choose a set of labels by sampling
             sample = self.sample(output)
             output = self.action_net.choose(sample, f)
-            
+    
         # the subnetworks are not trained
         self.invoke_subnets(action, output, **kwargs)
         
@@ -63,30 +111,44 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         (n_pp_dist, n_goal_dist, n_pp_angle, n_ppg_angle, *_) = selected_features_next
 
         # is the player next to the puck?
-        if c_pp_dist >= PUCK_RADIUS:
+        if c_pp_dist >= 0:            
+
+            """
             reward = continuous_causal_reward(
                 c_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
-                n_pp_dist / MAX_STEERING_ANGLE_REWARD * MAX_SOCCER_DISTANCE_REWARD, 
-                1.0, MAX_SOCCER_DISTANCE_REWARD)
-            if reward > 0:
-                reward *= 0.1
+                n_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
+                1.0, MAX_SOCCER_DISTANCE_REWARD) if action == 0 else -1
+            """
+            reward = c_pp_dist if action == 0 else -c_pp_dist
         else:
-            reward = steering_angle_reward(
-                c_ppg_angle, 
-                n_ppg_angle) * MAX_SOCCER_DISTANCE_REWARD
+            """
+            reward = continuous_causal_reward(
+                c_goal_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
+                n_goal_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
+                1.0, MAX_SOCCER_DISTANCE_REWARD) if action == 1 else -1
+            #reward = steering_angle_reward(
+            #    c_ppg_angle, 
+            #    n_ppg_angle) if action == 1 else -1
+            """
+            reward = c_pp_dist if action == 1 else -c_pp_dist
+
+        #print("planner reward ", action, reward, c_pp_dist)
+
+        reward /= MAX_DISTANCE 
 
         return reward
     
     def extract_greedy_action(self, action, f):        
         output = self.action_net(f)
         # the greedy action here is to only train the categorical index        
-        return self.action_net.get_index(output, self.action_net.get_labels(f)).squeeze()[0]
+        return self.action_net.get_index(output, self.action_net.get_labels(f))
 
     def select_features(self, features, features_vec):
         pp_dist = features.select_player_puck_distance(features_vec)
         goal_dist = features.select_puck_goal_distance(features_vec)
         pp_angle = features.select_player_puck_angle(features_vec)
-        ppg_angle = features.select_player_puck_goal_angle(features_vec)
+        ppg_angle = features.select_player_puck_angle(features_vec)
+        counter_steer_angle = features.select_player_puck_countersteer_angle(features_vec)
         behind_angle = features.select_behind_player_angle(features_vec)
         speed = features.select_speed(features_vec)
         delta_speed = features.select_delta_speed(features_vec)
@@ -96,10 +158,10 @@ class PlayerPuckGoalPlannerActor(BaseActor):
                 
         return torch.Tensor([
             pp_dist,
-            goal_dist,
-            pp_angle,
-            ppg_angle,
-            speed,
+            #goal_dist,
+            #pp_angle,
+            #ppg_angle,
+            #speed,
 
             # 1st label - behind the cart
             #behind_angle,
@@ -112,11 +174,15 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             target_speed,
 
             # 3rd label - goal
-            ppg_angle,
+            counter_steer_angle,
             delta_speed,
             target_speed,
             
         ])
+
+    def check_grad(self):
+        print("Weight", self.action_net.net[0].weight, "Gradient", self.action_net.net[0].weight.grad)
+        #print("Bias", self.action_net.net[0].bias, "Gradient", self.action_net.net[0].bias.grad)
 
 class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
 

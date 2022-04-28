@@ -8,7 +8,6 @@ MAX_STEERING_ANGLE_REWARD = np.pi
 MAX_SPEED_REWARD = 3.0
 MAX_SOCCER_DISTANCE_REWARD = 3.0
 MAX_DISTANCE = 130
-PUCK_RADIUS = 2.0
 
 def lateral_distance_reward(current_lat, next_lat):
     # lateral distance reward
