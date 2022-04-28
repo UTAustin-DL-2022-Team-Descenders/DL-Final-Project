@@ -123,7 +123,7 @@ class CategoricalSelection(SingleLinearNetwork):
         return x[self.index_start:].view(-1, self.n_features)
 
     def get_index(self, input, y):
-        return (input > 0.5).long() #torch.argmax(input, dim=0)        
+        return (input > 0).long() #torch.argmax(input, dim=0)        
 
     def choose(self, index, x):
         y = self.get_labels(x)

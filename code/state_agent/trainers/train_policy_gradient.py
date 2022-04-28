@@ -182,6 +182,7 @@ def reinforce_epoch(
             greedy_action = actor.extract_greedy_action(action, features_vec)
 
             reward = actor.reward(
+                action,
                 greedy_action,
                 features[it + i],
                 features[it + min(i + T, len(trajectory)-1)]

@@ -7,50 +7,6 @@ import torch
 from .base_actors import BaseActor, LinearForNormalAndStd, CategoricalSelection
 from .rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, steering_angle_reward
 
-class ChoiceLinearNetwork(torch.nn.Module):
-    
-    def __init__(self, index_start, n_features, **kwargs) -> None:        
-        # need double the number of outputs for mean and std        
-        super().__init__(**kwargs)
-        self.n_features = n_features
-        self.index_start = index_start
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(1, 1, bias=False),
-            torch.nn.ReLU()
-        )
-        self.activation = None
-
-
-    def forward(self, x):        
-
-        if x.dim() == 1:
-            input = x[0:self.index_start]
-        else:
-            input = x[:,0:self.index_start]
-
-        output = self.net(input)
-        if not self.training:
-            output = self.choose(output, x)                            
-                
-        return output
-
-    def get_labels(self, x):
-        return x[self.index_start:].view(-1, self.n_features)
-        
-    def get_index(self, input, y):
-        return (input > 0).long() #torch.argmax(input, dim=0)
-        
-
-    def choose(self, index, x):
-        y = self.get_labels(x)
-    
-        index = self.get_index(index, y).expand([1, y.shape[1]])
-
-        # take the best choice between the given labels
-        output = torch.gather(y, dim=0, index=index).squeeze()
-
-        return output
-
 class PlayerPuckGoalPlannerActor(BaseActor):
 
     LABEL_INDEX = 1
@@ -73,8 +29,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         #   delta speed
         #   target speed 
         
-        super().__init__(action_net if action_net else ChoiceLinearNetwork(self.LABEL_INDEX, self.FEATURES), train=train, sample_type="bernoulli")
-        #super().__init__(CategoricalSelection(self.LABEL_INDEX, self.FEATURES, n_inputs=self.LABEL_INDEX, n_outputs=self.CASES, bias=False) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        super().__init__(CategoricalSelection(self.LABEL_INDEX, self.FEATURES, n_inputs=self.LABEL_INDEX, n_outputs=self.CASES, bias=False) if action_net is None else action_net, train=train, sample_type="bernoulli")
         self.speed_net = speed_net
         self.steering_net = steering_net
 
@@ -106,7 +61,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         self.speed_net(action, input, **kwargs)           
         
 
-    def reward(self, action, selected_features_curr, selected_features_next):
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
         (c_pp_dist, c_goal_dist, c_pp_angle, c_ppg_angle, *_) = selected_features_curr
         (n_pp_dist, n_goal_dist, n_pp_angle, n_ppg_angle, *_) = selected_features_next
 
@@ -119,7 +74,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
                 n_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
                 1.0, MAX_SOCCER_DISTANCE_REWARD) if action == 0 else -1
             """
-            reward = c_pp_dist if action == 0 else -c_pp_dist
+            reward = c_pp_dist if greedy_action[0] == 0 else -c_pp_dist
         else:
             """
             reward = continuous_causal_reward(
@@ -130,12 +85,10 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             #    c_ppg_angle, 
             #    n_ppg_angle) if action == 1 else -1
             """
-            reward = c_pp_dist if action == 1 else -c_pp_dist
+            reward = c_pp_dist if greedy_action[0] == 1 else -c_pp_dist
 
         #print("planner reward ", action, reward, c_pp_dist)
-
-        reward /= MAX_DISTANCE 
-
+    
         return reward
     
     def extract_greedy_action(self, action, f):        
@@ -222,7 +175,7 @@ class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
         
         return output
 
-    def reward(self, action, selected_features_curr, selected_features_next):
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
         (c_pp_dist, c_goal_dist, *_) = selected_features_curr
         (n_pp_dist, n_goal_dist, *_) = selected_features_next
         reward_puck_dist = continuous_causal_reward(c_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, n_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 1.0, MAX_SOCCER_DISTANCE_REWARD)

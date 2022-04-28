@@ -22,7 +22,7 @@ class SteeringActor(BaseActor):
             action.steer = output[0] # raw output
         return action
 
-    def reward(self, action, selected_features_curr, selected_features_next):
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
         current_angle = selected_features_curr
         next_angle = selected_features_next
         return steering_angle_reward(current_angle, next_angle)        
@@ -55,7 +55,7 @@ class DriftActor(BaseActor):
         
         return action
 
-    def reward(self, action, selected_features_curr, selected_features_next):
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
         [current_angle] = selected_features_curr
         [next_angle] = selected_features_next        
         return steering_angle_reward(current_angle, next_angle)
@@ -108,7 +108,7 @@ class SpeedActor(BaseActor):
             target_speed
         ])
 
-    def reward(self, action, selected_features_curr, selected_features_next):
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
 
         [_, current_speed, _] = selected_features_curr
         [_, next_speed, next_target_speed] = selected_features_next
