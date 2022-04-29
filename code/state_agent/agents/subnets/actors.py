@@ -81,7 +81,7 @@ class SpeedActor(BaseActor):
         # outputs:
         #   acceleration (0-1)
         #   brake (boolean)
-        super().__init__(LinearWithSigmoid(3, 2) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)        
+        super().__init__(LinearWithSigmoid(3, 2, bias=True) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)        
 
     def __call__(self, action, f, train=True, **kwargs):  
         output = self.action_net(f) 
