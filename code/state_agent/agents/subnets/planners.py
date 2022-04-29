@@ -37,7 +37,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             n_inputs=self.LABEL_INDEX,
             n_outputs=self.CASES,
             n_hidden=5, 
-            bias=False
+            bias=True
         ) if action_net is None else action_net, train=train, sample_type="categorical")
         self.speed_net = speed_net
         self.steering_net = steering_net
@@ -48,6 +48,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
     def __call__(self, action, f, train=False, **kwargs):
         
         output = self.action_net(f)
+
+        # print(output)
 
         if self.train is not None:
             train = self.train
@@ -80,13 +82,11 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         puck_outside_angle_fast = torch.abs(c_pp_angle) > 0.35
 
         # are we likely stuck next to a wall?
-        puck_outside_angle_slow = torch.abs(n_pp_angle) > 0.25 and n_speed < 1.0
+        puck_outside_angle_slow = torch.abs(c_pp_angle) > 0.25 and c_speed < 1.0
 
-        #if puck_outside_angle_fast or puck_outside_angle_slow:
+        #if puck_outside_angle_slow:
 
-            #reward = torch.abs(n_pp_angle) if greedy_action == 0 else -torch.abs(n_pp_angle)
-            #if greedy_action == 0:
-        #reward = -1 if greedy_action == 0 else reward
+        #    reward = torch.abs(c_pp_angle) if greedy_action == 0 else -torch.abs(c_pp_angle)
 
         # is the player next to the puck?
         if c_pp_dist >= 0:
@@ -144,9 +144,9 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             speed,
 
             # 1st label - behind the cart
-            behind_angle,
-            delta_speed_behind,
-            target_speed_behind,
+            0.0,
+            -10,
+            -10,
 
             # 2nd label - puck 
             pp_angle,
