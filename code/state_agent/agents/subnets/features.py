@@ -7,7 +7,7 @@ import torch
 MAX_SPEED = 23.0
 TARGET_SPEED_FEATURE = 44
 PUCK_RADIUS = 2.0
-PUCK_MAX_STEER_OFFSET = 0.25 # 45 degrees when [0,1] maps to [0,np.pi]
+PUCK_MAX_STEER_OFFSET = 0.2 # 35~45 degrees when [0,1] maps to [0,np.pi]
     
 def get_obj1_to_obj2_angle(object1_center, object2_center):
     object1_direction = get_obj1_to_obj2_direction(object1_center, object2_center)

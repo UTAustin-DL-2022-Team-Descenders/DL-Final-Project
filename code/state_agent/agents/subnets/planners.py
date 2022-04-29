@@ -13,7 +13,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
     LABEL_INDEX = 3
     FEATURES = 3
-    CASES = 2
+    CASES = 3
 
     def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
         # Steering action_net
@@ -97,7 +97,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
                 n_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
                 1.0, MAX_SOCCER_DISTANCE_REWARD) if action == 0 else -1
             """
-            reward = c_pp_dist if greedy_action == 0 else -c_pp_dist
+            reward = c_pp_dist if greedy_action == 1 else -c_pp_dist
             reward = reward / MAX_DISTANCE
             
         elif c_pp_dist < 0:
@@ -110,7 +110,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             #    c_ppg_angle, 
             #    n_ppg_angle) if action == 1 else -1
             """
-            reward = -c_pp_dist if greedy_action == 1 else c_pp_dist
+            reward = -c_pp_dist if greedy_action == 2 else c_pp_dist
             reward = reward / PUCK_RADIUS           
 
         #print("planner reward ", greedy_action, reward, c_pp_dist)
@@ -144,9 +144,9 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             speed,
 
             # 1st label - behind the cart
-            #behind_angle,
-            #delta_speed_behind,
-            #target_speed_behind,
+            behind_angle,
+            delta_speed_behind,
+            target_speed_behind,
 
             # 2nd label - puck 
             pp_angle,
