@@ -103,11 +103,11 @@ class LinearForNormalAndStd(LinearNetwork):
         else:
             return torch.concat([output[:, 0:self.n_outputs//2], torch.abs(output[:, self.n_outputs//2:self.n_outputs])], dim=1)
 
-class CategoricalSelection(LinearNetwork):
+class CategoricalSelection(LinearWithSoftmax):
     
     def __init__(self, index_start, n_features, **kwargs) -> None:        
         # need double the number of outputs for mean and std  
-        super().__init__(None, **kwargs)
+        super().__init__(**kwargs)
         self.n_features = n_features
         self.index_start = index_start
 
