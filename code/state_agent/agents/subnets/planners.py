@@ -5,12 +5,13 @@ import torch
 import numpy as np
 from torch.nn import functional as F
 
+from .features import PUCK_RADIUS
 from .base_actors import BaseActor, LinearForNormalAndStd, CategoricalSelection
 from .rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, steering_angle_reward
 
 class PlayerPuckGoalPlannerActor(BaseActor):
 
-    LABEL_INDEX = 1
+    LABEL_INDEX = 3
     FEATURES = 3
     CASES = 2
 
@@ -30,7 +31,14 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         #   delta speed
         #   target speed 
         
-        super().__init__(CategoricalSelection(self.LABEL_INDEX, self.FEATURES, n_inputs=self.LABEL_INDEX, n_outputs=self.CASES, n_hidden=1, bias=False) if action_net is None else action_net, train=train, sample_type="categorical")
+        super().__init__(CategoricalSelection(
+            self.LABEL_INDEX, 
+            self.FEATURES, 
+            n_inputs=self.LABEL_INDEX,
+            n_outputs=self.CASES,
+            n_hidden=5, 
+            bias=False
+        ) if action_net is None else action_net, train=train, sample_type="categorical")
         self.speed_net = speed_net
         self.steering_net = steering_net
 
@@ -63,13 +71,25 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
-        (c_pp_dist, c_goal_dist, c_pp_angle, c_ppg_angle, *_) = selected_features_curr
-        (n_pp_dist, n_goal_dist, n_pp_angle, n_ppg_angle, *_) = selected_features_next
+        (c_pp_dist, c_pp_angle, c_speed, *_) = selected_features_curr
+        (n_pp_dist, n_pp_angle, n_speed, *_) = selected_features_next
 
         reward = 0
 
+        # is the puck outside of the maximum steering angle?
+        puck_outside_angle_fast = torch.abs(c_pp_angle) > 0.35
+
+        # are we likely stuck next to a wall?
+        puck_outside_angle_slow = torch.abs(n_pp_angle) > 0.25 and n_speed < 1.0
+
+        #if puck_outside_angle_fast or puck_outside_angle_slow:
+
+            #reward = torch.abs(n_pp_angle) if greedy_action == 0 else -torch.abs(n_pp_angle)
+            #if greedy_action == 0:
+        #reward = -1 if greedy_action == 0 else reward
+
         # is the player next to the puck?
-        if c_pp_dist >= 0:            
+        if c_pp_dist >= 0:
 
             """
             reward = continuous_causal_reward(
@@ -78,7 +98,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
                 1.0, MAX_SOCCER_DISTANCE_REWARD) if action == 0 else -1
             """
             reward = c_pp_dist if greedy_action == 0 else -c_pp_dist
-        
+            reward = reward / MAX_DISTANCE
+            
         elif c_pp_dist < 0:
             """
             reward = continuous_causal_reward(
@@ -89,7 +110,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             #    c_ppg_angle, 
             #    n_ppg_angle) if action == 1 else -1
             """
-            reward = c_pp_dist if greedy_action == 1 else -c_pp_dist
+            reward = -c_pp_dist if greedy_action == 1 else c_pp_dist
+            reward = reward / PUCK_RADIUS           
 
         #print("planner reward ", greedy_action, reward, c_pp_dist)
 
@@ -117,9 +139,9 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         return torch.Tensor([
             pp_dist,
             #goal_dist,
-            #pp_angle,
+            pp_angle,
             #ppg_angle,
-            #speed,
+            speed,
 
             # 1st label - behind the cart
             #behind_angle,
