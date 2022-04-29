@@ -15,6 +15,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
     FEATURES = 3
     CASES = 3
 
+    acceleration = True
+
     def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
         # Steering action_net
         # inputs: 
@@ -62,6 +64,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
     
         # the subnetworks are not trained
         self.invoke_subnets(action, output, **kwargs)
+
+        #print(action.acceleration, action.brake)
         
         return output
 
@@ -79,17 +83,18 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         reward = 0
 
         # is the puck outside of the maximum steering angle?
-        puck_outside_angle_fast = torch.abs(c_pp_angle) > 0.35
+        #puck_outside_angle_fast = torch.abs(c_pp_angle) > 0.35
 
         # are we likely stuck next to a wall?
-        puck_outside_angle_slow = torch.abs(c_pp_angle) > 0.25 and c_speed < 1.0
+        puck_outside_angle_slow = torch.abs(c_pp_angle) > 0.35 and c_speed < 0.02
 
-        #if puck_outside_angle_slow:
+        #if puck_outside_angle_fast:
+        if puck_outside_angle_slow:
 
-        #    reward = torch.abs(c_pp_angle) if greedy_action == 0 else -torch.abs(c_pp_angle)
+            reward = torch.abs(c_pp_angle) if greedy_action == 0 else -torch.abs(c_pp_angle)
 
         # is the player next to the puck?
-        if c_pp_dist >= 0:
+        elif c_pp_dist >= 0:
 
             """
             reward = continuous_causal_reward(
@@ -136,6 +141,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         target_speed = features.select_target_speed(features_vec)
         target_speed_behind = features.select_speed_behind(features_vec)
                 
+        #print("Speed", speed)
+
         return torch.Tensor([
             pp_dist,
             #goal_dist,
@@ -145,8 +152,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
             # 1st label - behind the cart
             0.0,
-            -10,
-            -10,
+            -10.0,
+            -10.0,
 
             # 2nd label - puck 
             pp_angle,
@@ -159,11 +166,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             target_speed,
             
         ])
-
-    def check_grad(self):
-        print("Weight", self.action_net.net[0].weight, "Gradient", self.action_net.net[0].weight.grad)
-        #print("Bias", self.action_net.net[0].bias, "Gradient", self.action_net.net[0].bias.grad)
-
+    
 class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
 
     def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
