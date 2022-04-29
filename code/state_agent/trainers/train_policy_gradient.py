@@ -59,12 +59,12 @@ configuration = SoccerReinforcementConfiguration()
 
 class Context():
     
-    def __init__(self, actions=None, trajectories=None, rewards=None) -> None:
+    def __init__(self) -> None:
         self.score = None
         self.action_net = None
-        self.actions=actions.detach().numpy()
-        self.rewards=rewards.detach().numpy()
-        self.trajectories=trajectories
+        self.actions=None
+        self.rewards=None
+        self.trajectories=None
 
 def reinforce(
             actor, 
@@ -229,12 +229,13 @@ def reinforce_epoch(
         
 
     action_net.eval()
+
+    context = context if context else Context()
+    context.actions=actions.detach().numpy()
+    context.rewards=returns.detach().numpy()
+    context.trajectories=trajectories
         
-    return context if context else Context(
-        actions=actions,
-        rewards=returns,
-        trajectories=trajectories
-    )
+    return context 
 
 def validate_epoch(     
     actor,
