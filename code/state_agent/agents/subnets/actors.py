@@ -2,9 +2,8 @@
 # Creation Date: 4/19/2022
 
 import torch
-from utils.track import SoccerFeatures
-from utils.base_actors import BaseActor, LinearWithTanh, LinearWithSigmoid, Agent as BaseAgent
-from utils.rewards import steering_angle_reward, speed_reward
+from .base_actors import BaseActor, LinearWithTanh, LinearWithSigmoid
+from .rewards import steering_angle_reward, speed_reward
 
 class SteeringActor(BaseActor):
     
@@ -133,17 +132,12 @@ class SpeedActor(BaseActor):
                 reward[1] = -1 # the break should not be enabled
 
         if next_target_speed < 0.0:
-            
             # the car should be going in reverse
             if accel != 0:
                 reward[0] = -1 # acceleration should be 0
-            else:
-                reward[0] = 3
 
             if action.brake == False:
                 reward[1] = -1 # brake should be True to move backwards
-            else:
-                reward[1] = 3
 
         elif next_speed == 0:
 
@@ -158,7 +152,3 @@ class SpeedActor(BaseActor):
             action.acceleration > 0.5,
             action.brake > 0.5
         ]
-
-class Agent(BaseAgent):
-    def __init__(self, *args, target_speed=10.0, **kwargs):
-        super().__init__(*args, extractor=SoccerFeatures(), target_speed=target_speed, **kwargs)

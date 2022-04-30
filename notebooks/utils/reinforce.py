@@ -45,7 +45,8 @@ def reinforce(actor,
         assert(best_actor.train == actor.train)
         assert(best_actor.reward_type == actor.reward_type)
 
-        trajectories = rollout_many([configuration.agent(*slice_net, actor, train=True)]*n_trajectories, mode=configuration.mode, randomize=True, n_steps=n_steps)
+        agents = [configuration.agent(*slice_net, actor, train=True) for i in range(n_trajectories)]
+        trajectories = rollout_many(agents, mode=configuration.mode, randomize=True, n_steps=n_steps)
         
         # Compute all the reqired quantities to update the policy
         features = []
@@ -54,15 +55,15 @@ def reinforce(actor,
         losses = []
         
         # state features
-        for trajectory in trajectories:
+        for num, trajectory in enumerate(trajectories):
             for i in range(len(trajectory)):
                 # Compute the features                
-                state = actor.select_features(proto_agent.extractor, proto_agent.get_feature_vector(**trajectory[i]))
+                state = actor.select_features(agents[num].extractor, agents[num].get_feature_vector(**trajectory[i]))
                 features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
 
         it = 0
 
-        for trajectory in trajectories:
+        for num, trajectory in enumerate(trajectories):
 
             loss = []
 
@@ -74,7 +75,7 @@ def reinforce(actor,
 
                 reward = actor.reward(
                     action,
-                    proto_agent.extractor,
+                    agents[num].extractor,
                     features[it + i],
                     features[it + min(i + T, len(trajectory)-1)]
                 )
@@ -121,8 +122,8 @@ def reinforce(actor,
 
         action_net.eval()
             
-        best_performance = rollout_many([configuration.agent(*slice_net, best_actor)] * n_validations, mode=configuration.mode, n_steps=n_steps)
-        current_performance = rollout_many([configuration.agent(*slice_net, actor)] * n_validations, mode=configuration.mode, n_steps=n_steps)
+        best_performance = rollout_many([configuration.agent(*slice_net, best_actor) for i in range(n_validations)], mode=configuration.mode, n_steps=n_steps)
+        current_performance = rollout_many([configuration.agent(*slice_net, actor) for i in range(n_validations)], mode=configuration.mode, n_steps=n_steps)
         
         # compute mean performance
         best_dist = evaluator.reduce(best_performance)

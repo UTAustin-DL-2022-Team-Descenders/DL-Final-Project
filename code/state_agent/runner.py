@@ -448,7 +448,7 @@ def main(args_local=None):
     logging.basicConfig(level=environ.get('LOGLEVEL', 'WARNING').upper())
 
     if args_local:
-        new_dict: dict = vars(args).copy()   # start with keys and values of starting_dict
+        new_dict: dict = vars(args).copy()
         new_dict.update(vars(args_local))
         args = argparse.Namespace(**new_dict)
 
