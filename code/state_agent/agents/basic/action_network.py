@@ -5,8 +5,8 @@ import numpy as np
 
 DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-# Assumes get_features returns 39 channels
-INPUT_CHANNELS = 39
+# Assumes get_features returns 40 channels
+INPUT_CHANNELS = 40
 
 # Assumes network outputs 6 different actions
 # Output channel order: [acceleration, steer, brake, drift, fire, nitro]
@@ -28,7 +28,7 @@ class ActionNetwork(torch.nn.Module):
             super().__init__()
 
             self.linear = torch.nn.Linear(n_input, n_output)
-            # self.bn =  torch.nn.BatchNorm1d(n_output)
+            #self.bn =  torch.nn.BatchNorm1d(n_output)
             self.bn =  torch.nn.LayerNorm(n_output)
 
         def forward(self, x):
@@ -72,12 +72,21 @@ class ActionNetwork(torch.nn.Module):
 
         x = self.main_network(x)
         
-        acceleration = torch.sigmoid(self.acceleration_net(x))
-        steering = torch.tanh(self.steering_net(x))
-        brake = torch.sigmoid(self.brake_net(x))
-        drift = torch.sigmoid(self.drift_net(x))
-        fire = torch.sigmoid(self.fire_net(x))
-        nitro = torch.sigmoid(self.nitro_net(x))
+        if self.training:
+            acceleration = torch.sigmoid(self.acceleration_net(x))
+            steering = torch.tanh(self.steering_net(x))
+            brake = torch.sigmoid(self.brake_net(x))
+            drift = torch.sigmoid(self.drift_net(x))
+            fire = torch.sigmoid(self.fire_net(x))
+            nitro = torch.sigmoid(self.nitro_net(x))
+        else:
+            acceleration = self.acceleration_net(x)
+            steering = self.steering_net(x)
+            brake = self.brake_net(x)
+            drift = self.drift_net(x)
+            fire = self.fire_net(x)
+            nitro = self.nitro_net(x)
+        
 
         output = torch.cat([acceleration, steering, brake, drift, fire, nitro], dim=-1)
 

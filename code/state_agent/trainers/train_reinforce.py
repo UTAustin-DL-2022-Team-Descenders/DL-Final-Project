@@ -1,5 +1,3 @@
-import subprocess
-from numpy import record
 import torch
 import torch.utils.tensorboard as tb
 import os, random

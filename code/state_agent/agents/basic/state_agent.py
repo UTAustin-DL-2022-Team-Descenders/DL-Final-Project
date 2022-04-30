@@ -13,7 +13,7 @@ ACTION_TENSOR_EPSILON_THRESHOLD = 100 # used in get_random_action for decaying e
 
 # StateAgent Default values
 DISCOUNT_RATE_GAMMA = 0.9 # between 0 to 1
-STATE_CHANNELS = 39 # State Channels created by get_features
+STATE_CHANNELS = 40 # State Channels created by get_features
 ACTION_CHANNELS = 6 # One channel for each actions
 
 # StateAgent encapsulates ActionNetwork, CriticNetwork, Target Action/Critic Networks, ReplayBuffer,
@@ -299,12 +299,13 @@ def get_features(player_state, team_state, opponent_states, puck_state, team_num
     # Get player features
     features_dict["player_kart_front"] = get_kart_front(player_state)
     features_dict["player_kart_center"] = get_kart_center(player_state)
-    features_dict["player_kart_angle"] = get_obj1_to_obj2_angle(features_dict["player_kart_front"], features_dict["player_kart_center"])
+    features_dict["player_kart_angle"] = get_obj1_to_obj2_angle(features_dict["player_kart_center"], features_dict["player_kart_front"])
     features_dict["player_kart_velocity"] = get_kart_velocity(player_state)
 
     # Get puck features
     features_dict["puck_center"] = get_puck_center(puck_state)
     features_dict["kart_to_puck_angle"]  = get_obj1_to_obj2_angle(features_dict["player_kart_center"], features_dict["puck_center"]) 
+    features_dict["kart_to_puck_angle_difference"]  = get_obj1_to_obj2_angle_difference(features_dict["player_kart_angle"], features_dict["kart_to_puck_angle"]) 
 
     # Get goal line features
     # - Opponent goal line
