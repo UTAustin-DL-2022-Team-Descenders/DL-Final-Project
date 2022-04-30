@@ -20,7 +20,7 @@ font = ImageFont.load_default()
 @ray.remote
 class Rollout:
     def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1, 
-                 mode="track"):
+                 mode="track", players=[(0, False, "tux")], num_karts=1):
         # Init supertuxkart
         if not render:
             config = pystk.GraphicsConfig.none()
@@ -37,16 +37,17 @@ class Rollout:
         self.track_info = None  
         self.mode = mode   
         
-        self.create_race(track)
+        self.create_race(track, players, num_karts)
     
-    def create_race(self, track):
+    def create_race(self, track, players, num_karts):
         race_config = None
         if self.mode == "track":
-            race_config = pystk.RaceConfig(track=track)
+            race_config = pystk.RaceConfig(track=track, num_kart=num_karts)
         elif self.mode == "soccer":
-            race_config = pystk.RaceConfig(track="icy_soccer_field", mode=pystk.RaceConfig.RaceMode.SOCCER)
+            race_config = pystk.RaceConfig(track="icy_soccer_field", mode=pystk.RaceConfig.RaceMode.SOCCER, num_kart=num_karts)
             race_config.players.pop()
-            race_config.players.append(self._make_config(0, False, "tux"))
+            for player in players:
+                race_config.players.append(self._make_config(*player))
         self.race = pystk.Race(race_config)
         self.race.start()  
 
@@ -75,7 +76,12 @@ class Rollout:
         if self.render:
             agent_data['image'] = np.array(self.race.render_data[0].image)
             if self.mode == "soccer":
-                agent_data['map'] = map_image([[to_native(world_info.players[0])]], to_native(world_info.soccer))
+                agent_data['map'] = map_image([
+                    # team 1
+                    [{'kart': to_native(world_info.karts[p])} for p in range(0, len(world_info.karts), 2) ], 
+                    # team 2
+                    [{'kart': to_native(world_info.karts[p])} for p in range(1, len(world_info.karts), 2) ]
+                ], to_native(world_info.soccer))
 
         return agent_data
 
