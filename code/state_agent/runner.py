@@ -122,6 +122,9 @@ class TeamRunner:
 
     def info(self):
         return RunnerInfo(self.agent_type, self._error, self._total_act_time)
+    
+    def team(self):
+        return self._team
 
 
 class MatchException(Exception):
@@ -317,6 +320,7 @@ def runner(args):
     import state_agent.utils as utils
     
     teams = []
+    team_agents = []
     states = []
     try:
     
@@ -324,8 +328,10 @@ def runner(args):
             # Create the teams
             if args.team1:
                 teams.append(AIRunner() if args.team1 == 'AI' else TeamRunner(args.team1))
+                team_agents.append(args.team1)
             if args.team2:
                 teams.append(AIRunner() if args.team2 == 'AI' else TeamRunner(args.team2))
+                team_agents.append(args.team2)
             
             use_graphics = reduce(lambda prev, team: team.agent_type == 'image' or prev, teams, False)
             match = Match(use_graphics=use_graphics)
@@ -362,20 +368,24 @@ def runner(args):
 
             del match
 
+            teams = [team._team if hasattr(team, "_team") else 'AI' for team in teams], states
+
         else:
             # Fire up ray
             remote.init(logging_level=getattr(logging, environ.get('LOGLEVEL', 'WARNING').upper()), configure_logging=True,
                         log_to_driver=True, include_dashboard=False)
 
             # Create the teams            
-            team_infos = []
-            if args.team1:                
+            team_infos = []            
+            if args.team1:                                
                 team1 = AIRunner() if args.team1 == 'AI' else remote.RayTeamRunner.remote(args.team1)
                 teams.append(team1)
+                team_agents.append(args.team1)
                 team_infos.append(team1.info() if args.team1 == 'AI' else remote.get(team1.info.remote()))
             if args.team2:
                 team2 = AIRunner() if args.team2 == 'AI' else remote.RayTeamRunner.remote(args.team2)
-                teams.append(team2)            
+                teams.append(team2)           
+                team_agents.append(args.team2) 
                 team_infos.append(team2.info() if args.team2 == 'AI' else remote.get(team2.info.remote()))
 
             # What should we record?
@@ -409,11 +419,13 @@ def runner(args):
                                         initial_ball_velocity=args.ball_velocity,
                                         training_mode=args.training_mode,
                                         record_fn=recorder)
-                results.append(result)
+                results.append((result, recorder))                
 
-            for result in results:
+            for result, recorder in results:
                 try:
                     result = remote.get(result)
+                    recorder_states = remote.get(recorder.get_states.remote())
+                    states.append(recorder_states)
                 except (remote.RayMatchException, MatchException) as e:
                     print('Match failed', e.score)
                     print(' T1:', e.msg1)
@@ -421,10 +433,12 @@ def runner(args):
 
                 print('Match results', result)
 
+            remote.shutdown()
+
     except Exception as e:
         traceback.print_exc()
 
-    return [team._team if hasattr(team, "_team") else 'AI' for team in teams], states
+    return team_agents, states
 
 def main(args_local=None):
     import argparse 

@@ -20,8 +20,7 @@ font = ImageFont.load_default()
 @ray.remote
 class Rollout:
     def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1, 
-                 mode="track",
-                 ball_location=None, ball_velocity=None):
+                 mode="track", players=[(0, False, "tux")], num_karts=1):
         # Init supertuxkart
         if not render:
             config = pystk.GraphicsConfig.none()
@@ -37,31 +36,32 @@ class Rollout:
         self.render = render
         self.track_info = None  
         self.mode = mode   
-        self.ball_location=ball_location
-        self.ball_velocity=ball_velocity   
-
-        self.create_race(track)
+        
+        self.create_race(track, players, num_karts)
     
-    def create_race(self, track):
+    def create_race(self, track, players, num_karts):
         race_config = None
         if self.mode == "track":
-            race_config = pystk.RaceConfig(track=track)
+            race_config = pystk.RaceConfig(track=track, num_kart=num_karts)
         elif self.mode == "soccer":
-            race_config = pystk.RaceConfig(track="icy_soccer_field", mode=pystk.RaceConfig.RaceMode.SOCCER)
+            race_config = pystk.RaceConfig(track="icy_soccer_field", mode=pystk.RaceConfig.RaceMode.SOCCER, num_kart=num_karts)
             race_config.players.pop()
-            race_config.players.append(self._make_config(0, False, "tux"))
+            for player in players:
+                race_config.players.append(self._make_config(*player))
         self.race = pystk.Race(race_config)
         self.race.start()  
 
-    def initialize_state(self, world_info, randomize=False):
+    def initialize_state(self, world_info, randomize=False, ball_location=None, ball_velocity=None, player_location=None, **kwargs):
         if self.mode == "track":
             self.track_info = track_info = pystk.Track()
             track_info.update()
         elif self.mode == "soccer":
-            ball_location = self.ball_location if self.ball_location else ([0, 0] if randomize == False else np.random.normal(loc=0.0, scale=24.0, size=(2)))
-            ball_velocity = self.ball_velocity if self.ball_velocity else [0, 0]
+            ball_location = ball_location if ball_location else ([0, 0] if randomize == False else np.random.uniform(low=-40, high=40, size=(2)))
+            ball_velocity = ball_velocity if ball_velocity else [0, 0]
             world_info.set_ball_location((ball_location[0], 1, ball_location[1]),
                                         (ball_velocity[0], 0, ball_velocity[1]))
+            if player_location:
+                world_info.set_kart_location(0, player_location, [0, 0, 0, 1.0], 0)
 
     def agent_data(self, world_info):
         # Gather world information
@@ -76,7 +76,12 @@ class Rollout:
         if self.render:
             agent_data['image'] = np.array(self.race.render_data[0].image)
             if self.mode == "soccer":
-                agent_data['map'] = map_image([[to_native(world_info.players[0])]], to_native(world_info.soccer))
+                agent_data['map'] = map_image([
+                    # team 1
+                    [{'kart': to_native(world_info.karts[p])} for p in range(0, len(world_info.karts), 2) ], 
+                    # team 2
+                    [{'kart': to_native(world_info.karts[p])} for p in range(1, len(world_info.karts), 2) ]
+                ], to_native(world_info.soccer))
 
         return agent_data
 
@@ -85,16 +90,23 @@ class Rollout:
         controller = PlayerConfig.Controller.AI_CONTROL if is_ai else PlayerConfig.Controller.PLAYER_CONTROL
         return PlayerConfig(controller=controller, team=team_id, kart=kart)
 
-    def __call__(self, agent, n_steps=600, randomize=False, **kwargs):
+    def __call__(self, agent, n_steps=600, randomize=False, initializer=None, **kwargs):
         torch.set_num_threads(1)
         self.race.restart()
         self.race.step()
         data = []
 
         world_info = pystk.WorldState()    
-        self.initialize_state(world_info, randomize=randomize)
+        if initializer:
+            initializer(world_info, randomize=randomize, **kwargs)
+        else:
+            self.initialize_state(world_info, randomize=randomize, **kwargs)
+
         world_info.update()
     
+        previous_score_sum = np.sum(world_info.soccer.score)
+        reset_needed = False
+        
         for i in range(n_steps // self.frame_skip):            
             world_info = pystk.WorldState()        
             world_info.update()
@@ -103,11 +115,26 @@ class Rollout:
 
             # Act
             action = agent(**agent_data)
+
+            game_action = pystk.Action(
+                **dict(vars(action))
+            )
+
             agent_data['action'] = action
 
             # Take a step in the simulation
             for it in range(self.frame_skip):
-                self.race.step(action)
+                self.race.step(game_action)
+
+            score_sum = np.sum(world_info.soccer.score)
+            if score_sum != previous_score_sum:
+                previous_score_sum = score_sum
+                reset_needed = True
+                
+            # is the puck in the air?
+            if reset_needed and world_info.soccer.ball.location[1] < 1.0:
+                self.initialize_state(world_info, randomize=randomize, **kwargs)
+                reset_needed = False
 
             # Save all the relevant data
             data.append(agent_data)
@@ -135,8 +162,10 @@ def show_video_soccer(data, fps=30):
         image_to_edit.text((10, 20), "speed: {}".format(speed))         
         image_to_edit.text((10, 30), "steering: {}".format(action.steer))         
         image_to_edit.text((10, 40), "drift: {}".format(action.drift))         
-        image_to_edit.text((10, 50), "distance: {}".format(distance))         
-        image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)))         
+        image_to_edit.text((10, 50), "brake: {}".format(action.brake))         
+        image_to_edit.text((10, 60), "distance: {}".format(distance))         
+        image_to_edit.text((10, 70), "angle puck: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)))         
+        image_to_edit.text((10, 80), "angle goal: {}".format(soccer_feature_extractor.select_player_goal_angle(feature)))         
         images.append(np.array(img))
 
     for img, action, distance, feature, speed in zip(frames_map, actions, distances, features, speeds):
@@ -145,9 +174,11 @@ def show_video_soccer(data, fps=30):
         image_to_edit.text((10, 20), "speed: {}".format(speed), fill=(0, 0, 0))         
         image_to_edit.text((10, 30), "steering: {}".format(action.steer), fill=(0, 0, 0))
         image_to_edit.text((10, 40), "drift: {}".format(action.drift), fill=(0, 0, 0))  
-        image_to_edit.text((10, 50), "distance: {}".format(distance), fill=(0, 0, 0))    
-        image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)), fill=(0, 0, 0))                     
+        image_to_edit.text((10, 50), "brake: {}".format(action.brake), fill=(0, 0, 0))         
+        image_to_edit.text((10, 60), "distance: {}".format(distance), fill=(0, 0, 0))    
+        image_to_edit.text((10, 70), "angle diff: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)), fill=(0, 0, 0))                     
         map_images.append(np.array(img))
+
 
     # create map video
 
@@ -162,20 +193,25 @@ def show_graph(data):
     steer = [t['action'].steer for t in data]
     drift = [t['action'].drift for t in data]
     accel = [t['action'].acceleration for t in data]
-    fig, (steering_p, drift_p, accel_p) = plt.subplots(1, 3)
+    brake = [t['action'].brake for t in data]
+    fig, (steering_p, drift_p, accel_p, brake_p) = plt.subplots(1, 4)
     steering_p.plot(steer)
     steering_p.set_title("Steering")
     drift_p.plot(drift)
     drift_p.set_title("Drift")
     accel_p.plot(accel)
     accel_p.set_title("Accel")
+    brake_p.plot(brake)
+    brake_p.set_title("Brake")
     fig.show()
 
 def show_trajectory_histogram(trajectories, metric, min=0, max=1000, bins=10):
     # histogram of trajectory overall scoring distribution
-    scores = [metric(t[-1]["kart_info"]) for t in trajectories]
+    scores = np.array([
+        [metric(s["kart_info"], s["soccer_state"]) for s in t] for t in trajectories
+    ]).flatten()
     scores = np.clip(scores, min, max)
-    plt.hist(scores, range(min, max, (max - min) // bins), density=True)
+    plt.hist(scores, range(min, max, (max - min) // bins))
     plt.show()
 
 def show_steering_graph(data):
@@ -192,9 +228,8 @@ def run_soccer_agent(agent, rollout=viz_rollout_soccer, **kwargs):
     show_graph(data)
     return data
 
-viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(10)]
+viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
 def rollout_many(many_agents, **kwargs):    
-    global viz_rollouts, last_mode
     ray_data = []
     for i, agent in enumerate(many_agents):
          ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )    
@@ -207,18 +242,26 @@ def dummy_agent(**kwargs):
         
 
 # StateAgent agnostic Save & Load model functions. Used in state_agent.py Match
-def save_model(model, f_path, file=__file__):
+def save_model(model, f_path, file=__file__, jit=False):
     from os import path
-    model_scripted = torch.jit.script(model)
-    model_scripted.save(path.join(path.dirname(path.abspath(file)), f_path ))
+    save_path = path.join(path.dirname(path.abspath(file)), f_path )
+    if jit:
+        model_scripted = torch.jit.script(model)
+        model_scripted.save(save_path)
+    else:
+        torch.save(model.state_dict(), save_path)
 
 
-def load_model(f_path, file=__file__):
+def load_model(f_path, file=__file__, model=None):
     from os import path
     import sys
     load_path = path.join(path.dirname(path.abspath(file)), f_path)
     try:
-        model = torch.jit.load(load_path)
+        if model:
+            model.load_state_dict(torch.load(load_path))
+            model.eval()
+        else:   
+            model = torch.jit.load(load_path)                     
         #print("Loaded pre-existing ActionNetwork from", load_path)
         return model
     except FileNotFoundError as e:
