@@ -2,7 +2,6 @@
 # Creation Date: 4/19/2022
 
 import torch
-from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
 
 def new_action_net(n_outputs=1, type="linear_tanh"):
     if type == "linear_sigmoid":
@@ -142,81 +141,4 @@ class CategoricalSelection(LinearWithSoftmax):
         output = torch.gather(y, dim=0, index=index).squeeze()
 
         return output
-
-class BaseActor:
-
-    def __init__(self, action_net, train=None, reward_type=None, sample_type=None):
-        self.action_net = action_net.cpu().eval() if train != True else action_net
-        self.train = train
-        self.reward_type = reward_type
-        self.sample_type = sample_type
-
-    def copy(self, action_net):
-        return self.__class__(action_net, train=self.train, reward_type=self.reward_type)
-
-    def sample(self, *args):
-        if self.sample_type == "bernoulli":
-            return self.sample_bernoulli(*args)
-        elif self.sample_type == "normal":
-            return self.sample_normal(*args)
-        elif self.sample_type == "categorical":
-            return self.sample_categorical(*args)
-        elif self.sample_type == "one_hot_categorical":
-            return self.sample_one_hot_categorical(*args)
-        raise Exception("Unknown sample type")
-
-    def log_prob(self, *args, actions):
-        input = args[0]
-        if self.action_net.activation == "Tanh" or \
-           self.action_net.activation == "Hardtanh":
-            input = (input + 1) / 2
-        if self.sample_type == "bernoulli":            
-            dist = Bernoulli(probs=input) if self.action_net.activation != None else Bernoulli(logits=input)
-            return dist.log_prob(actions)
-        elif self.sample_type == "normal":
-            dist = Normal(*args)
-            return dist.log_prob(actions)
-        elif self.sample_type == "categorical":
-            dist = Categorical(probs=input) if self.action_net.activation != None else Categorical(logits=input)
-            return dist.log_prob(actions)
-        elif self.sample_type == "one_hot_categorical":
-            dist = OneHotCategorical(probs=input) if self.action_net.activation != None else OneHotCategorical(logits=input)
-            
-            value = dist.log_prob(actions)
-            print("one hot probs", actions, value)
-            return value
-        raise Exception("Unknown sample type")
-
-    def sample_bernoulli(self, output):
-        if self.action_net.activation == "Tanh" or \
-           self.action_net.activation == "Hardtanh":
-            output = (output + 1) / 2
-        if self.action_net.activation != None:
-            output = Bernoulli(probs=output).sample()
-        else:
-            output = Bernoulli(logits=output).sample()
-        return output
-
-    def sample_normal(self, location, scale):
-        output = Normal(loc=location, scale=scale).sample()
-        return output
-
-    def sample_categorical(self, probs):
-        if self.action_net.activation != None:
-            output = OneHotCategorical(probs=probs).sample()
-        else:
-            output = Categorical(logits=probs).sample()
-        return output
-
-    def sample_one_hot_categorical(self, probs):
-        if self.action_net.activation != None:
-            output = OneHotCategorical(probs=probs).sample()
-        else:
-            output = OneHotCategorical(logits=probs).sample()
-        return output
-
-    def select_features(self, state_features):
-
-        # this is only called for top level actors; nested actors are given features directly from their ancestors
-        pass
 

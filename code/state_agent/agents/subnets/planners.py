@@ -1,19 +1,25 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/25/2022
 
+from sre_parse import CATEGORIES
 import torch
 import numpy as np
 from torch.nn import functional as F
 
 from .features import PUCK_RADIUS
-from .base_actors import BaseActor, LinearForNormalAndStd, CategoricalSelection
+from .action_nets import LinearForNormalAndStd, CategoricalSelection
+from .actors import BaseActor
 from .rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, steering_angle_reward
 
 class PlayerPuckGoalPlannerActor(BaseActor):
 
     LABEL_INDEX = 3
     FEATURES = 3
-    CASES = 3
+    CATEGORIES = 3
+    HIDDEN_STATES = 5
+    DELTA_STEERING_ANGLE_OUTPUT = 0
+    DELTA_SPEED_OUTPUT = 1
+    TARGET_SPEED_OUTPUT = 2
 
     acceleration = True
 
@@ -37,8 +43,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             self.LABEL_INDEX, 
             self.FEATURES, 
             n_inputs=self.LABEL_INDEX,
-            n_outputs=self.CASES,
-            n_hidden=5, 
+            n_outputs=self.CATEGORIES,
+            n_hidden=self.HIDDEN_STATES, 
             bias=True
         ) if action_net is None else action_net, train=train, sample_type="categorical")
         self.speed_net = speed_net
@@ -71,7 +77,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
     def invoke_subnets(self, action, input, **kwargs):
         # steering direction - raw output        
-        self.steering_net(action, input[[0]], **kwargs)
+        self.steering_net(action, input[[self.DELTA_STEERING_ANGLE_OUTPUT]], **kwargs)
         # delta speed, target speed - raw output
         self.speed_net(action, input, **kwargs)           
         
@@ -95,26 +101,10 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
         # is the player next to the puck?
         elif c_pp_dist >= 0:
-
-            """
-            reward = continuous_causal_reward(
-                c_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
-                n_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
-                1.0, MAX_SOCCER_DISTANCE_REWARD) if action == 0 else -1
-            """
             reward = c_pp_dist if greedy_action == 1 else -c_pp_dist
             reward = reward / MAX_DISTANCE
             
         elif c_pp_dist < 0:
-            """
-            reward = continuous_causal_reward(
-                c_goal_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
-                n_goal_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 
-                1.0, MAX_SOCCER_DISTANCE_REWARD) if action == 1 else -1
-            #reward = steering_angle_reward(
-            #    c_ppg_angle, 
-            #    n_ppg_angle) if action == 1 else -1
-            """
             reward = -c_pp_dist if greedy_action == 2 else c_pp_dist
             reward = reward / PUCK_RADIUS           
 
@@ -151,22 +141,28 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             speed,
 
             # 1st label - behind the cart
-            0.0,
-            -10.0,
-            -10.0,
+            0.0, # steering directly behind the cart
+            -10.0, # negative delta, ie reverse as fast as possible 
+            -10.0, # negative target speed, ie reverse
 
-            # 2nd label - puck 
+            # 2nd label - go towards the puck 
             pp_angle,
             delta_speed,
             target_speed,
 
-            # 3rd label - goal
+            # 3rd label - steer the puck towards the goal
             counter_steer_angle,
             delta_speed,
             target_speed,
             
         ])
     
+"""
+The goal of the fine tuned planner is to use the outputs of the base planner categories as the 'mean' 
+of a stochastic monte-carlo search for finding the best target angle and speed to optimize an objective function.
+
+In simpler terms, it will train by generating noise to offset the base planners output and learn what offsets to apply before passing outputs to subnetworks.
+"""
 class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
 
     def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
