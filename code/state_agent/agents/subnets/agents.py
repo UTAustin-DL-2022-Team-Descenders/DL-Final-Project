@@ -5,7 +5,7 @@ from argparse import Namespace
 from typing import Union
 import torch
 from functools import reduce
-from .features import SoccerFeatures
+from .features import SoccerFeatures, MAX_SPEED
 from .utils import DictObj
 
 class Action:
@@ -58,7 +58,7 @@ class BaseAgent:
         return action
 
 class Agent(BaseAgent):
-    def __init__(self, *args, target_speed=10.0, **kwargs):
+    def __init__(self, *args, target_speed=MAX_SPEED, **kwargs):
         super().__init__(*args, extractor=SoccerFeatures(), target_speed=target_speed, **kwargs)
 
 class BaseTeam:

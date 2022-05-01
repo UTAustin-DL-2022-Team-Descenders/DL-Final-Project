@@ -167,8 +167,9 @@ def show_video_soccer(data, fps=30):
         image_to_edit.text((10, 20), "speed: {}".format(speed))         
         image_to_edit.text((10, 30), "steering: {}".format(action.steer))         
         image_to_edit.text((10, 40), "drift: {}".format(action.drift))         
-        image_to_edit.text((10, 50), "distance: {}".format(distance))         
-        image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)))         
+        image_to_edit.text((10, 50), "brake: {}".format(action.brake))         
+        image_to_edit.text((10, 60), "distance: {}".format(distance))         
+        image_to_edit.text((10, 70), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)))         
         images.append(np.array(img))
 
     for img, action, distance, feature, speed in zip(frames_map, actions, distances, features, speeds):
@@ -177,8 +178,9 @@ def show_video_soccer(data, fps=30):
         image_to_edit.text((10, 20), "speed: {}".format(speed), fill=(0, 0, 0))         
         image_to_edit.text((10, 30), "steering: {}".format(action.steer), fill=(0, 0, 0))
         image_to_edit.text((10, 40), "drift: {}".format(action.drift), fill=(0, 0, 0))  
-        image_to_edit.text((10, 50), "distance: {}".format(distance), fill=(0, 0, 0))    
-        image_to_edit.text((10, 60), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)), fill=(0, 0, 0))                     
+        image_to_edit.text((10, 50), "brake: {}".format(action.brake), fill=(0, 0, 0))         
+        image_to_edit.text((10, 60), "distance: {}".format(distance), fill=(0, 0, 0))    
+        image_to_edit.text((10, 70), "angle diff: {}".format(soccer_feature_extractor.select_delta_steering(feature)), fill=(0, 0, 0))                     
         map_images.append(np.array(img))
 
     # create map video
@@ -222,7 +224,7 @@ def show_steering_graph(data):
 
 viz_rollout = Rollout.remote(400, 300)
 def run_agent(agent, n_steps=600, rollout=viz_rollout, **kwargs):
-    data = ray.get(rollout.__call__.remote(agent, track_feature_extractor, n_steps=n_steps, **kwargs))
+    data = ray.get(rollout.__call__.remote(agent, n_steps=n_steps, **kwargs))
     show_video(data)
     show_graph(data)
     return data

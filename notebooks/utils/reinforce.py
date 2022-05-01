@@ -34,9 +34,7 @@ def reinforce(actor,
     optim = torch.optim.Adam(action_net.parameters(), lr=1e-3)
 
     slice_net = list(filter(lambda a: a != actor, actors))
-
-    proto_agent = configuration.agent(actors)
-
+    
     for epoch in range(n_epochs):
         eps = 1e-2  
         

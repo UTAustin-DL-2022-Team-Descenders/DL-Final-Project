@@ -139,7 +139,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             # 1st label - behind the cart
             0.0, # steering directly behind the cart
             -10.0, # negative delta, ie reverse as fast as possible 
-            -10.0, # negative target speed, ie reverse
+            -target_speed, # negative target speed, ie reverse
 
             # 2nd label - go towards the puck 
             pp_angle,
