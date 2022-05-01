@@ -27,10 +27,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         # Steering action_net
         # inputs: 
         #   player-puck distance
-        #   puck-goal distance
         #   player-puck angle 
-        #   puck-goal angle
-        #   player velocity
+        #   player speed
         #  
         # categorical labels: 3
         #
@@ -135,9 +133,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
         return torch.Tensor([
             pp_dist,
-            #goal_dist,
             pp_angle,
-            #ppg_angle,
             speed,
 
             # 1st label - behind the cart
