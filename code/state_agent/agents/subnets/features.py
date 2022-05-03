@@ -147,6 +147,9 @@ class SoccerFeatures(Features):
 
         return features
 
+    def select_indicies(self, indices, features):
+        return torch.Tensor(features[indices])
+
     def select_player_puck_goal_angle(self, features):        
         return features[self.PLAYER_PUCK_GOAL_ANGLE]
 
