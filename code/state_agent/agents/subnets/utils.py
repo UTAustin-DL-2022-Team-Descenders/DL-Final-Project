@@ -242,7 +242,7 @@ def dummy_agent(**kwargs):
 
 
 # StateAgent agnostic Save & Load model functions. Used in state_agent.py Match
-def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=False):
+def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=True):
     from os import path
     if use_jit:
         model_scripted = torch.jit.script(model)
@@ -253,13 +253,14 @@ def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.pat
     print(f"Saved {model_name} to {save_path}")
 
 
-def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=False):
+def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=True, model_class=None):
 
     try:
         if use_jit:
             model = torch.jit.load(os.path.join(load_path, f"{model_name}.pt"))
-        else: # Otherwise use Pickle
-            model = torch.load(os.path.join(load_path, f"{model_name}.th"))
+        else: # Otherwise use Pickle. Need to use model_class for this
+            model = model_class()
+            model.load_state_dict(torch.load(os.path.join(load_path, f"{model_name}.th")))
             model.eval()
 
         print("Loaded pre-existing network from", load_path)
