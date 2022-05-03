@@ -155,6 +155,7 @@ class CategoricalSelection(LinearWithSoftmax):
         super().__init__(**kwargs)
         self.n_features = n_features
         self.index_start = index_start
+        self.last_choice = None
 
 
     def forward(self, x):        
@@ -181,7 +182,8 @@ class CategoricalSelection(LinearWithSoftmax):
     def choose(self, index, x):
         y = self.get_labels(x)
     
-        index = self.get_index(index).expand([1, y.shape[1]])
+        self.last_choice = self.get_index(index)
+        index = self.last_choice.expand([1, y.shape[1]])
 
         # take the best choice between the given labels
         output = torch.gather(y, dim=0, index=index).squeeze()

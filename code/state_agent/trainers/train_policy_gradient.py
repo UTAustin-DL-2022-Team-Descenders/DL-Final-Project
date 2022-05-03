@@ -159,13 +159,15 @@ def reinforce_epoch(
     player_id = 0 # hard-coded for now
     
     # state features
+    last_kart_state = None
     for num, trajectory in enumerate(trajectories):
         agent = agents[num % len(trajectories)] 
         for i in range(len(trajectory)):
             # Compute the features         
             feature_dict = configuration.extract_trajectory(trajectory[i], player_team, player_on_team)
-            state = actor.select_features(agent.extractor, agent.get_feature_vector(**feature_dict))
+            state = actor.select_features(agent.extractor, agent.get_feature_vector(**feature_dict, last_state=last_kart_state))
             features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
+            last_kart_state = feature_dict['kart_info']
 
     it = 0
 
@@ -223,6 +225,7 @@ def reinforce_epoch(
         expected_log_return = (log_prob.squeeze()*batch_returns).mean()
         optim.zero_grad()
         (-expected_log_return).backward()
+        
         #actor.check_grad()
         optim.step()
         avg_expected_log_return.append(float(expected_log_return))           

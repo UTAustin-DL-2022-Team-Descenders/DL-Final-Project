@@ -56,10 +56,14 @@ def cart_velocity(kart_info):
 def cart_speed(kart_info):
     # cart speed
     vel = cart_velocity(kart_info)
+    return calculate_speed(kart_info, vel)
+
+def calculate_speed(kart_info, vel):
     dir = cart_direction(kart_info)
     sign = np.sign(np.dot(vel, dir))
     speed = np.linalg.norm(vel) * sign
     return speed
+
 
 def get_target_speed_feature(features):
     return features[TARGET_SPEED_FEATURE]
@@ -86,6 +90,7 @@ class SoccerFeatures(Features):
     SPEED = 32
     TARGET_SPEED = 33    
     DELTA_SPEED = 34
+    PREVIOUS_SPEED = 35
     PLAYER_GOAL_ANGLE = 39
     PLAYER_PUCK_COUNTER_STEER_ANGLE = 40        
     STEERING_ANGLE_BEHIND = 41
@@ -93,7 +98,7 @@ class SoccerFeatures(Features):
     STEERING_ANGLE = 43
     PLAYER_PUCK_GOAL_ANGLE = 44
     
-    def get_feature_vector(self, kart_info, soccer_state, absolute=False, target_speed=0.0, **kwargs):
+    def get_feature_vector(self, kart_info, soccer_state, absolute=False, target_speed=0.0, last_state=None, **kwargs):
 
         # cart location
         p = cart_location(kart_info)
@@ -128,6 +133,7 @@ class SoccerFeatures(Features):
         # speed
         speed = cart_speed(kart_info)
         speed_negative = -10
+        previous_speed = cart_speed(last_state) if last_state else MAX_SPEED
 
         features = np.zeros(45).astype(np.float32)
 
@@ -135,6 +141,7 @@ class SoccerFeatures(Features):
         features[self.PLAYER_PUCK_DISTANCE] =  pp_dist
         features[self.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
         features[self.SPEED] = speed
+        features[self.PREVIOUS_SPEED] = previous_speed
         features[self.TARGET_SPEED] = target_speed
         features[self.TARGET_SPEED_BEHIND] = speed_negative
         features[self.DELTA_SPEED] = target_speed - speed
@@ -170,6 +177,9 @@ class SoccerFeatures(Features):
 
     def select_speed(self, features):
         return features[self.SPEED]
+
+    def select_previous_speed(self, features):
+        return features[self.PREVIOUS_SPEED]
 
     def select_speed_behind(self, features):
         return features[self.TARGET_SPEED_BEHIND]
