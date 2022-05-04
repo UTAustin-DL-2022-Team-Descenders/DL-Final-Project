@@ -3,8 +3,10 @@
 
 import torch
 from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
-from .action_nets import LinearWithTanh, LinearWithSigmoid
-from .rewards import steering_angle_reward, speed_reward
+from state_agent.agents.subnets.action_nets import LinearWithTanh, LinearWithSigmoid
+from state_agent.agents.subnets.rewards import steering_angle_reward, speed_reward
+from state_agent.agents.subnets.utils import save_model, load_model
+import os
 
 class BaseActor:
 
@@ -13,6 +15,10 @@ class BaseActor:
         self.train = train
         self.reward_type = reward_type
         self.sample_type = sample_type
+
+        # Set model path and name to save/load SteeringActor's action_net
+        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules")
+        self.model_name = "base_actor"
 
     def copy(self, action_net):
         return self.__class__(action_net, train=self.train, reward_type=self.reward_type)
@@ -43,7 +49,7 @@ class BaseActor:
         if self.action_net.activation == "Tanh" or \
            self.action_net.activation == "Hardtanh":
             input = (input + 1) / 2
-        if self.sample_type == "bernoulli":            
+        if self.sample_type == "bernoulli":
             dist = Bernoulli(probs=input) if self.action_net.activation != None else Bernoulli(logits=input)
             return dist.log_prob(actions)
         elif self.sample_type == "normal":
@@ -54,7 +60,7 @@ class BaseActor:
             return dist.log_prob(actions)
         elif self.sample_type == "one_hot_categorical":
             dist = OneHotCategorical(probs=input) if self.action_net.activation != None else OneHotCategorical(logits=input)
-            
+
             value = dist.log_prob(actions)
             print("one hot probs", actions, value)
             return value
@@ -92,18 +98,48 @@ class BaseActor:
 
         # this is only called for top level actors; nested actors are given features directly from their ancestors
         pass
+
+    def save_model(self, custom_model_name=None, use_jit=True):
+
+        # set the save name of the model. User may provide a custom model name or default to self.model_name
+        save_model_name = custom_model_name if custom_model_name else self.model_name
+
+        save_model(self.action_net, save_model_name, save_path=self.model_path, use_jit=use_jit)
+
+    def load_model(self, custom_model_name=None, use_jit=True):
+
+
+        # Set model_class if we're not using JIT scripts
+        if not use_jit:
+            model_class = self.action_net.__class__
+        else:
+            model_class = None
+
+        # set the load name of the model. User may provide a custom model name or default to self.model_name
+        load_model_name = custom_model_name if custom_model_name else self.model_name
+
+        self.action_net = load_model(load_model_name, load_path=self.model_path, model_class=model_class)
+
 class SteeringActor(BaseActor):
-    
+
     def __init__(self, action_net=None, train=None, **kwargs):
+
         # Steering action_net
         # inputs: delta steering angle
         super().__init__(LinearWithTanh(1, 1) if action_net is None else action_net, train=train, sample_type="bernoulli")
+
+        # Set model path to save/load SteeringActor's action_net
+        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "steering")
+
+        # Set model name for saving and loading action net
+        self.model_name = "steer_net"
+
 
     def __call__(self, action, f, train=False, **kwargs):
         output = self.action_net(f)
         if self.train is not None:
             train = self.train
-        if train:                        
+        if train:
             action.steer = self.sample(output) * 2 - 1
         else:
             action.steer = output[0] # raw output
@@ -112,8 +148,8 @@ class SteeringActor(BaseActor):
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
         current_angle = selected_features_curr
         next_angle = selected_features_next
-        return steering_angle_reward(current_angle, next_angle)        
-    
+        return steering_angle_reward(current_angle, next_angle)
+
     def extract_greedy_action(self, action, *args, **kwargs):
         return [action.steer > 0]
 
@@ -124,34 +160,41 @@ class SteeringActor(BaseActor):
         ])
 
 class DriftActor(BaseActor):
-    
+
     def __init__(self, action_net=None, train=None, **kwargs):
         # Steering action_net
-        # inputs: delta steering angle, delta lateral distance        
+        # inputs: delta steering angle, delta lateral distance
         super().__init__(LinearWithSigmoid(2, 1) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
-    def __call__(self, action, f, train=True, **kwargs):        
+        # Set model path to save/load DriftActor's action_net
+        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "drift")
+
+        # Set model name for saving and loading action net
+        self.model_name = "drift_net"
+
+
+    def __call__(self, action, f, train=True, **kwargs):
         output = self.action_net(f)
         if self.train is not None:
             train = self.train
-        if train:            
+        if train:
             action.drift = self.sample(output) > 0.5
         else:
             # drift is a binary value
             action.drift = output[0] > 0.5
-        
+
         return action
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
         [current_angle] = selected_features_curr
-        [next_angle] = selected_features_next        
+        [next_angle] = selected_features_next
         return steering_angle_reward(current_angle, next_angle)
-        
+
     def extract_greedy_action(self, action, *args, **kwargs):
         return [action.drift > 0.5]
 
     def select_features(self, features, features_vec):
-        delta_steering_angle = features.select_player_puck_angle(features_vec)        
+        delta_steering_angle = features.select_player_puck_angle(features_vec)
         return torch.tensor([
             delta_steering_angle
         ])
@@ -161,7 +204,7 @@ class SpeedActor(BaseActor):
     acceleration = True
 
     def __init__(self, action_net=None, train=None, **kwargs):
-        # inputs:         
+        # inputs:
         #   delta steering angle
         #   delta speed
         #   target speed
@@ -170,8 +213,15 @@ class SpeedActor(BaseActor):
         #   brake (boolean)
         super().__init__(LinearWithTanh(3, 2, bias=False) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)        
 
-    def __call__(self, action, f, train=True, **kwargs):  
-        output = self.action_net(f) 
+        # Set model path to save/load DriftActor's action_net
+        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "speed")
+
+        # Set model name for saving and loading action net
+        self.model_name = "speed_net"
+
+
+    def __call__(self, action, f, train=True, **kwargs):
+        output = self.action_net(f)
         if self.train is not None:
             train = self.train
         if train:
@@ -183,13 +233,13 @@ class SpeedActor(BaseActor):
             action.acceleration = torch.clamp(output[0], 0, 1.0)
             # brake is a binary value
             action.brake = output[1] > 0.5
-        
+
         return action
 
     def select_features(self, features, features_vec):
-        delta_steering_angle = features.select_player_puck_angle(features_vec)        
-        delta_speed = features.select_delta_speed(features_vec)        
-        target_speed = features.select_target_speed(features_vec)        
+        delta_steering_angle = features.select_player_puck_angle(features_vec)
+        delta_speed = features.select_delta_speed(features_vec)
+        target_speed = features.select_target_speed(features_vec)
         return torch.tensor([
             delta_steering_angle,
             delta_speed,
@@ -204,18 +254,18 @@ class SpeedActor(BaseActor):
         reward = [speed_reward(current_speed, next_speed)] * 2
 
         accel = round(action.acceleration, 5)
-        
+
         if next_speed < -0.5:
             if accel > 0:
                 reward[0] = -1 # should not accelerate if velocity should decrease!
 
             # Note: The car can slow down without having to brake... so we don't change the reward if the braking isn't enabled
-        
+
         if next_speed > 0.5:
 
             if accel == 0:
                 reward[0] = -1 # should be accelerating!
-            
+
             if action.brake == True:
                 reward[1] = -1 # the break should not be enabled
 

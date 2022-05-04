@@ -1,14 +1,15 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/25/2022
 
-import torch
+import torch, os
 import numpy as np
 from torch.nn import functional as F
+from state_agent.agents.subnets.utils import save_model
 
-from .features import MIN_WALL_SPEED, NEAR_WALL_OFFSET, NEAR_WALL_STD, PUCK_RADIUS, SoccerFeatures
-from .action_nets import BooleanClassifier, Selection
-from .actors import BaseActor
-from .rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, steering_angle_reward
+from state_agent.agents.subnets.features import MIN_WALL_SPEED, NEAR_WALL_OFFSET, NEAR_WALL_STD, PUCK_RADIUS, SoccerFeatures
+from state_agent.agents.subnets.action_nets import BooleanClassifier, Selection
+from state_agent.agents.subnets.actors import BaseActor
+from state_agent.agents.subnets.rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, steering_angle_reward
 
 class Classifier(BaseActor):
 
@@ -164,13 +165,14 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         return call_output
 
     def invoke_subnets(self, action, input, **kwargs):
-        # steering direction - raw output        
+        # steering direction - raw output
         self.steering_net(action, input[[self.DELTA_STEERING_ANGLE_OUTPUT]], **kwargs)
         # delta speed, target speed - raw output
-        self.speed_net(action, input, **kwargs)           
-        
+        self.speed_net(action, input, **kwargs)
+
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
+
         #print("reward: ", greedy_action)
         rewards = [1.0 for idx, c in enumerate(self.classifiers)]
         return rewards
@@ -223,7 +225,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         return torch.concat([c.log_prob(input[:,idx], actions=actions[:,idx]).unsqueeze(1) for idx, c in enumerate(self.classifiers)], dim=1)
 
 """
-The goal of the fine tuned planner is to use the outputs of the base planner categories as the 'mean' 
+The goal of the fine tuned planner is to use the outputs of the base planner categories as the 'mean'
 of a stochastic monte-carlo search for finding the best target angle and speed to optimize an objective function.
 
 In simpler terms, it will train by generating noise to offset the base planners output and learn what offsets to apply before passing outputs to subnetworks.
@@ -232,10 +234,10 @@ class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
 
     def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
         # Steering action_net
-        # inputs: 
+        # inputs:
         #   player-puck distance
         #   puck-goal distance
-        #   player-puck angle 
+        #   player-puck angle
         #   puck-goal angle
         #   player velocity
         # outputs:
@@ -248,22 +250,22 @@ class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
 
 
         super().__init__(speed_net, steering_net, action_net, train=train, sample_type="normal")
-        
-    def __call__(self, action, f, train=False, **kwargs):        
+
+    def __call__(self, action, f, train=False, **kwargs):
         output = self.action_net(f)
 
         if self.train is not None:
             train = self.train
-        if train:                      
-            output[0:3] = self.sample(output[0:3], output[3:6])            
-            
+        if train:
+            output[0:3] = self.sample(output[0:3], output[3:6])
+
         # the subnetworks are not trained
-        
-        # steering direction - raw output        
+
+        # steering direction - raw output
         self.steering_net(action, output[[0]], **kwargs)
         # delta speed, target speed - raw output
-        self.speed_net(action, output[0:3], **kwargs)           
-        
+        self.speed_net(action, output[0:3], **kwargs)
+
         return output
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
@@ -272,11 +274,11 @@ class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
         reward_puck_dist = continuous_causal_reward(c_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, n_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 1.0, MAX_SOCCER_DISTANCE_REWARD)
         reward_goal_dist = continuous_causal_reward(c_goal_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, n_goal_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 0.1, MAX_SOCCER_DISTANCE_REWARD)
         return [(reward_goal_dist + reward_puck_dist) / 2] * 3
-    
-    def extract_greedy_action(self, action, f):        
-        # determine the steering direction and speed        
-        output = self.action_net(f)        
-        return output[0:3].detach().numpy()   
+
+    def extract_greedy_action(self, action, f):
+        # determine the steering direction and speed
+        output = self.action_net(f)
+        return output[0:3].detach().numpy()
 
     def select_features(self, features, features_vec):
         pp_dist = features.select_player_puck_distance(features_vec)
@@ -284,7 +286,7 @@ class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
         pp_angle = features.select_player_puck_angle(features_vec)
         ppg_angle = features.select_player_puck_goal_angle(features_vec)
         speed = features.select_speed(features_vec)
-        
+
         return torch.Tensor([
             pp_dist,
             goal_dist,

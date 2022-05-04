@@ -6,11 +6,11 @@ from typing import Union
 import torch
 import copy
 from functools import reduce
-from .features import SoccerFeatures, MAX_SPEED
-from .utils import DictObj
+from state_agent.agents.subnets.features import SoccerFeatures, MAX_SPEED
+from state_agent.agents.subnets.utils import DictObj
 
 class Action:
-    
+
     def __init__(self):
         self.acceleration = torch.Tensor([0.0])
         self.steer = torch.Tensor([0.0])
@@ -31,19 +31,19 @@ class BaseAgent:
     MAX_STATE = 5
 
     def __init__(self, *args, extractor=None, train=False, target_speed=None, **kwargs):
-        self.nets = args
+        self.actors = args
         self.train = train
         self.extractor = extractor
         self.accel = kwargs['accel'] if 'accel' in kwargs else 1.0
-        self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.nets, False)
+        self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.actors, False)
         self.target_speed = target_speed
         self.reset()
-    
+
     def invoke_actor(self, actor, action, f):
-        actor(action, actor.select_features(self.extractor, f), train=self.train)       
+        actor(action, actor.select_features(self.extractor, f), train=self.train)
 
     def invoke_actors(self, action, f):
-        [self.invoke_actor(actor, action, f) for actor in self.nets]
+        [self.invoke_actor(actor, action, f) for actor in self.actors]
 
     def get_feature_vector(self, kart_info, soccer_state, **kwargs):        
         return self.extractor.get_feature_vector(
@@ -70,13 +70,26 @@ class BaseAgent:
             self.last_state.pop(0)
 
         self.invoke_actors(action, f)         
+
         if self.use_accel:
-            action.acceleration = self.accel       
+            action.acceleration = self.accel
 
         action.detach()
         self.last_output=action
         
         return action
+
+    def save_models(self):
+        for actor_i in range(len(self.actors)):
+            actor = self.actor[actor_i]
+            actor_model_save_name = f"{self.actor.model_name}_{actor_i}"
+            actor.save_model(actor_model_save_name)
+
+    def load_models(self):
+        for actor_i in range(len(self.actors)):
+            actor = self.actor[actor_i]
+            actor_model_load_name = f"{self.actor.model_name}_{actor_i}"
+            actor.load_model(actor_model_load_name)
 
 class Agent(BaseAgent):
     def __init__(self, *args, target_speed=MAX_SPEED, **kwargs):
@@ -84,18 +97,18 @@ class Agent(BaseAgent):
 
 class BaseTeam:
     agent_type = 'state'
-    
+
     def __init__(self, agent: Agent):
         self.team = None
         self.num_players = 0
         self.training_mode = None
         self.agent = agent
-            
+
     def set_training_mode(self, mode):
         """
         The training mode algorithm will be passed by name here.
         This allows the agent to decide what actions to take based on the training type.
-        For example, a "reinforce" mode could use randomized actions from a policy distribution 
+        For example, a "reinforce" mode could use randomized actions from a policy distribution
         """
         self.training_mode = mode
 
@@ -112,10 +125,11 @@ class BaseTeam:
         """
            TODO: feel free to edit or delete any of the code below
         """
-        
+
         self.team, self.num_players = team, num_players
         
         self.agent.reset()
+
         return ['tux'] * num_players
 
     def act(self, player_states, opponent_states, soccer_state):
