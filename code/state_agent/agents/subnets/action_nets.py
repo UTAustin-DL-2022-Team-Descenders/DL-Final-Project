@@ -67,23 +67,20 @@ class LinearWithSigmoid(LinearNetwork):
     def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, hard=False, **kwargs) -> None:
         super().__init__(torch.nn.Sigmoid if not hard else torch.nn.Hardsigmoid, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, **kwargs)
 
-    def forward(self, x):
-        return super().forward(x)
-    
 class LinearWithTanh(LinearNetwork):
 
-    def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False) -> None:        
-        super().__init__(torch.nn.Tanh, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias)
+    def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, **kwargs) -> None:        
+        super().__init__(torch.nn.Tanh, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, **kwargs)
 
 
     def forward(self, x):
         if self.training:
-            output = self.net(x)
+            output = super().forward(x)
             # the training output needs to be a probability
             output = (output + 1) / 2
             return output
         else:
-            return self.net(x)
+            return super().forward(x)
 
 class LinearWithSoftmax(LinearNetwork):
 
@@ -108,18 +105,19 @@ class LinearForNormalAndStd(LinearNetwork):
         else:
             return torch.concat([output[:, 0:self.n_outputs//2], torch.abs(output[:, self.n_outputs//2:self.n_outputs])], dim=1)
 
-class BooleanClassifier(LinearWithSigmoid):
+class BooleanClassifier(LinearWithTanh):
 
     def __init__(self, **kwargs) -> None:        
         super().__init__(n_outputs=1, **kwargs)        
 
 class Selection(BaseNetwork):
 
-    def __init__(self, classifiers, labels_index, n_features, **kwargs) -> None:
+    def __init__(self, classifiers, labels_index, n_features, selection_bias, **kwargs) -> None:
         super().__init__(**kwargs)
         self.classifiers = classifiers        
         self.index_start = labels_index
         self.n_features = n_features
+        self.selection_bias = torch.tensor(selection_bias)
 
     def parameters(self, recurse: bool = True):
         params = []
@@ -137,7 +135,7 @@ class Selection(BaseNetwork):
         return index
 
     def choose(self,x, y):
-        index = torch.argmax(x, dim=0).expand([1, y.shape[1]])   
+        index = torch.argmax(x + self.selection_bias, dim=0).expand([1, y.shape[1]])   
         
         # take the best choice between the given labels
         return torch.gather(y, dim=0, index=index).squeeze()

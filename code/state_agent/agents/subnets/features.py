@@ -5,10 +5,14 @@ import numpy as np
 import torch
 
 MAX_SPEED = 23.0
+MIN_WALL_SPEED = 0.25
 TARGET_SPEED_FEATURE = 44
 PUCK_RADIUS = 2.0
 PUCK_MAX_STEER_OFFSET = 0.2 # 35~45 degrees when [0,1] maps to [0,np.pi]
-    
+NEAR_WALL_OFFSET = 60.0
+NEAR_WALL_STD = 2.0
+
+
 def get_obj1_to_obj2_angle(object1_center, object2_center):
     object1_direction = get_obj1_to_obj2_direction(object1_center, object2_center)
     return np.arctan2(object1_direction[1], object1_direction[0])
@@ -84,13 +88,15 @@ class Features():
 class SoccerFeatures(Features):
     
     PLAYER_PUCK_DISTANCE = 2
+    PLAYER_WALL_DISTANCE = 3
     PUCK_GOAL_DISTANCE = 5    
+    PREVIOUS_SPEED = 29
     DELTA_SPEED_BEHIND = 30
     TARGET_SPEED_BEHIND = 31
     SPEED = 32
     TARGET_SPEED = 33    
     DELTA_SPEED = 34
-    PREVIOUS_SPEED = 35
+    PREVIOUS_ACCEL = 35
     PLAYER_GOAL_ANGLE = 39
     PLAYER_PUCK_COUNTER_STEER_ANGLE = 40        
     STEERING_ANGLE_BEHIND = 41
@@ -98,7 +104,7 @@ class SoccerFeatures(Features):
     STEERING_ANGLE = 43
     PLAYER_PUCK_GOAL_ANGLE = 44
     
-    def get_feature_vector(self, kart_info, soccer_state, absolute=False, target_speed=0.0, last_state=None, **kwargs):
+    def get_feature_vector(self, kart_info, soccer_state, absolute=False, target_speed=0.0, last_state=None, last_action=None, **kwargs):
 
         # cart location
         p = cart_location(kart_info)
@@ -133,14 +139,16 @@ class SoccerFeatures(Features):
         # speed
         speed = cart_speed(kart_info)
         speed_negative = -10
-        previous_speed = cart_speed(last_state) if last_state else MAX_SPEED
+        previous_speed = cart_speed(last_state[-1]) if last_state else MAX_SPEED
 
         features = np.zeros(45).astype(np.float32)
 
         features[0:2] = p - puck
+        features[self.PLAYER_WALL_DISTANCE] = (np.linalg.norm(p) - NEAR_WALL_OFFSET) / (NEAR_WALL_STD)
         features[self.PLAYER_PUCK_DISTANCE] =  pp_dist
         features[self.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
         features[self.SPEED] = speed
+        features[self.PREVIOUS_ACCEL] = last_action.acceleration if last_action is not None else 0.0
         features[self.PREVIOUS_SPEED] = previous_speed
         features[self.TARGET_SPEED] = target_speed
         features[self.TARGET_SPEED_BEHIND] = speed_negative
@@ -151,7 +159,7 @@ class SoccerFeatures(Features):
         features[self.PLAYER_PUCK_ANGLE] = steer_puck_angle_diff
         features[self.PLAYER_PUCK_GOAL_ANGLE] = 0 #steer_puck_goal_angle_diff
         features[self.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
-
+        
         return features
 
     def select_indicies(self, indices, features):
@@ -177,10 +185,7 @@ class SoccerFeatures(Features):
 
     def select_speed(self, features):
         return features[self.SPEED]
-
-    def select_previous_speed(self, features):
-        return features[self.PREVIOUS_SPEED]
-
+    
     def select_speed_behind(self, features):
         return features[self.TARGET_SPEED_BEHIND]
 

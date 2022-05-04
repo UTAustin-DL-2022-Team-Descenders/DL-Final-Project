@@ -27,6 +27,9 @@ class Action:
         self.brake = bool(self.brake.detach().numpy()) if hasattr(self.brake, "detach") else self.brake
         self.fire = bool(self.fire.detach().numpy()) if hasattr(self.fire, "detach") else self.fire
 class BaseAgent:
+
+    MAX_STATE = 5
+
     def __init__(self, *args, extractor=None, train=False, target_speed=None, **kwargs):
         self.nets = args
         self.train = train
@@ -51,24 +54,28 @@ class BaseAgent:
         )
 
     def reset(self):
-        self.last_output = torch.Tensor([0, 0, 0, 0, 0])
-        self.last_state = None
+        self.last_output = None
+        self.last_state = []
 
     def __call__(self, kart_info, soccer_state, **kwargs):
         action = Action()
         action.acceleration = self.accel
 
-        f = self.get_feature_vector(kart_info, soccer_state, last_state=self.last_state)
+        f = self.get_feature_vector(kart_info, soccer_state, last_state=self.last_state, last_action=self.last_output)
         f = torch.as_tensor(f).view(-1)
 
         # save previous kart state
-        self.last_state = copy.deepcopy(kart_info)
+        self.last_state.append(copy.deepcopy(kart_info))
+        if len(self.last_state) > self.MAX_STATE:
+            self.last_state.pop(0)
 
         self.invoke_actors(action, f)         
         if self.use_accel:
             action.acceleration = self.accel       
 
         action.detach()
+        self.last_output=action
+        
         return action
 
 class Agent(BaseAgent):
