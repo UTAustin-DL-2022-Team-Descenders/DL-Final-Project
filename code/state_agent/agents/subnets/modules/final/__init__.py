@@ -11,13 +11,13 @@ class Team(BaseTeam):
 
 
         self.steering_actor = SteeringActor()
-        self.steering_actor.load_model()
+        self.steering_actor.load_model(use_jit=False)
 
         self.speed_actor = SpeedActor()
-        self.speed_actor.load_model()
+        self.speed_actor.load_model(use_jit=False)
 
         self.training_actor = PlayerPuckGoalPlannerActor(self.speed_actor, self.steering_actor)
-        self.training_actor.load_model()
+        self.training_actor.load_model(use_jit=False)
 
         agent = Agent(self.training_actor, train=train)
 

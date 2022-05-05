@@ -245,6 +245,7 @@ def dummy_agent(**kwargs):
 def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=True):
     from os import path
     if use_jit:
+        model.eval()
         model_scripted = torch.jit.script(model)
         model_scripted.save(path.join(save_path, f"{model_name}.pt"))
     else: # Otherwise use Pickle
