@@ -13,8 +13,8 @@ class Team(BaseTeam):
         # load network
         print("init agent")
 
-        action_net = load_model('agent.pt', file=__file__)
-        self.training_actor = SteeringActor(action_net)
+        self.training_actor = SteeringActor()
+        self.training_actor.load_model()
 
         super().__init__(            
             Agent(
