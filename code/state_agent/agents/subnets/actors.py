@@ -17,6 +17,16 @@ class BaseActor:
     def copy(self, action_net):
         return self.__class__(action_net, train=self.train, reward_type=self.reward_type)
 
+    def __call__(self, action, f, train=False, **kwargs):        
+        output = self.action_net(f)
+        if self.train is not None:
+            train = self.train
+        #assert(self.action_net.training == train)            
+        if train:       
+            # choose a set of labels by sampling
+            output = self.sample(output)
+        return output
+
     def sample(self, *args):
         if self.sample_type == "bernoulli":
             return self.sample_bernoulli(*args)
@@ -78,7 +88,7 @@ class BaseActor:
             output = OneHotCategorical(logits=probs).sample()
         return output
 
-    def select_features(self, state_features):
+    def select_features(self, features, features_vec):
 
         # this is only called for top level actors; nested actors are given features directly from their ancestors
         pass
@@ -158,7 +168,7 @@ class SpeedActor(BaseActor):
         # outputs:
         #   acceleration (0-1)
         #   brake (boolean)
-        super().__init__(LinearWithSigmoid(3, 2, bias=True) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)        
+        super().__init__(LinearWithTanh(3, 2, bias=False) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)        
 
     def __call__(self, action, f, train=True, **kwargs):  
         output = self.action_net(f) 
@@ -166,10 +176,11 @@ class SpeedActor(BaseActor):
             train = self.train
         if train:
             sample = self.sample(output)
-            action.acceleration = sample[0]
+            action.acceleration = torch.clamp(sample[0], 0, 1.0)
             action.brake = sample[1] > 0.5
         else:            
-            action.acceleration = output[0]
+            # round output due to continuous gradient never being exactly zero
+            action.acceleration = torch.clamp(output[0], 0, 1.0)
             # brake is a binary value
             action.brake = output[1] > 0.5
         

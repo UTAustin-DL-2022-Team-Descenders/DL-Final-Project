@@ -151,6 +151,7 @@ def reinforce_epoch(
     features = []
     returns = []
     actions = []
+    real_actions = []
     losses = []
 
     # XXX change these
@@ -159,13 +160,21 @@ def reinforce_epoch(
     player_id = 0 # hard-coded for now
     
     # state features
+    last_kart_state = []
+    last_action = None
     for num, trajectory in enumerate(trajectories):
         agent = agents[num % len(trajectories)] 
         for i in range(len(trajectory)):
             # Compute the features         
             feature_dict = configuration.extract_trajectory(trajectory[i], player_team, player_on_team)
-            state = actor.select_features(agent.extractor, agent.get_feature_vector(**feature_dict))
+            real_action = configuration.extract_action(trajectory[i], player_id)
+            state = actor.select_features(agent.extractor, agent.get_feature_vector(**feature_dict, last_state=last_kart_state, last_action=last_action))
             features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
+            real_actions.append( real_action)
+            last_kart_state.append( feature_dict['kart_info'] )
+            if len(last_kart_state) > Agent.MAX_STATE:
+                last_kart_state.pop(0)
+            last_action = real_action
 
     it = 0
 
@@ -178,7 +187,7 @@ def reinforce_epoch(
         for i in range(len(trajectory)):                
             # Compute the returns
             features_vec = features[it + i]
-            action = configuration.extract_action(trajectory[i], player_id)
+            action = real_actions[it + i]
             greedy_action = actor.extract_greedy_action(action, features_vec)
 
             reward = actor.reward(
@@ -223,6 +232,7 @@ def reinforce_epoch(
         expected_log_return = (log_prob.squeeze()*batch_returns).mean()
         optim.zero_grad()
         (-expected_log_return).backward()
+        
         #actor.check_grad()
         optim.step()
         avg_expected_log_return.append(float(expected_log_return))           

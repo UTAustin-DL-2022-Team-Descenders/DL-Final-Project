@@ -4,6 +4,7 @@
 from argparse import Namespace
 from typing import Union
 import torch
+import copy
 from functools import reduce
 from .features import SoccerFeatures, MAX_SPEED
 from .utils import DictObj
@@ -26,6 +27,9 @@ class Action:
         self.brake = bool(self.brake.detach().numpy()) if hasattr(self.brake, "detach") else self.brake
         self.fire = bool(self.fire.detach().numpy()) if hasattr(self.fire, "detach") else self.fire
 class BaseAgent:
+
+    MAX_STATE = 5
+
     def __init__(self, *args, extractor=None, train=False, target_speed=None, **kwargs):
         self.nets = args
         self.train = train
@@ -33,7 +37,7 @@ class BaseAgent:
         self.accel = kwargs['accel'] if 'accel' in kwargs else 1.0
         self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.nets, False)
         self.target_speed = target_speed
-        self.last_output = torch.Tensor([0, 0, 0, 0, 0])        
+        self.reset()
     
     def invoke_actor(self, actor, action, f):
         actor(action, actor.select_features(self.extractor, f), train=self.train)       
@@ -41,20 +45,37 @@ class BaseAgent:
     def invoke_actors(self, action, f):
         [self.invoke_actor(actor, action, f) for actor in self.nets]
 
-    def get_feature_vector(self, kart_info, soccer_state, **kwargs):
-        return self.extractor.get_feature_vector(kart_info, soccer_state, target_speed=self.target_speed, **kwargs)
+    def get_feature_vector(self, kart_info, soccer_state, **kwargs):        
+        return self.extractor.get_feature_vector(
+            kart_info, 
+            soccer_state, 
+            target_speed=self.target_speed,            
+            **kwargs
+        )
+
+    def reset(self):
+        self.last_output = None
+        self.last_state = []
 
     def __call__(self, kart_info, soccer_state, **kwargs):
         action = Action()
         action.acceleration = self.accel
 
-        f = self.get_feature_vector(kart_info, soccer_state)
+        f = self.get_feature_vector(kart_info, soccer_state, last_state=self.last_state, last_action=self.last_output)
         f = torch.as_tensor(f).view(-1)
-        self.invoke_actors(action, f) 
+
+        # save previous kart state
+        self.last_state.append(copy.deepcopy(kart_info))
+        if len(self.last_state) > self.MAX_STATE:
+            self.last_state.pop(0)
+
+        self.invoke_actors(action, f)         
         if self.use_accel:
             action.acceleration = self.accel       
 
         action.detach()
+        self.last_output=action
+        
         return action
 
 class Agent(BaseAgent):
@@ -94,6 +115,7 @@ class BaseTeam:
         
         self.team, self.num_players = team, num_players
         
+        self.agent.reset()
         return ['tux'] * num_players
 
     def act(self, player_states, opponent_states, soccer_state):
