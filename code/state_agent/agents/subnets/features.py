@@ -97,6 +97,7 @@ class SoccerFeatures(Features):
     TARGET_SPEED = 33    
     DELTA_SPEED = 34
     PREVIOUS_ACCEL = 35
+    PREVIOUS_STEER = 36
     PLAYER_GOAL_ANGLE = 39
     PLAYER_PUCK_COUNTER_STEER_ANGLE = 40        
     STEERING_ANGLE_BEHIND = 41
@@ -149,6 +150,7 @@ class SoccerFeatures(Features):
         features[self.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
         features[self.SPEED] = speed
         features[self.PREVIOUS_ACCEL] = last_action.acceleration if last_action is not None else 0.0
+        features[self.PREVIOUS_STEER] = last_action.steer if last_action is not None else 0.0
         features[self.PREVIOUS_SPEED] = previous_speed
         features[self.TARGET_SPEED] = target_speed
         features[self.TARGET_SPEED_BEHIND] = speed_negative

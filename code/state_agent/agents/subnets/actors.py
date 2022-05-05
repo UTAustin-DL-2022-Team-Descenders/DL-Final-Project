@@ -3,6 +3,8 @@
 
 import torch
 from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
+
+from state_agent.agents.subnets.features import SoccerFeatures
 from .action_nets import LinearWithTanh, LinearWithSigmoid
 from .rewards import steering_angle_reward, speed_reward
 
@@ -127,34 +129,44 @@ class DriftActor(BaseActor):
     
     def __init__(self, action_net=None, train=None, **kwargs):
         # Steering action_net
-        # inputs: delta steering angle, delta lateral distance        
-        super().__init__(LinearWithSigmoid(2, 1) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        # inputs: delta steering angle
+        super().__init__(LinearWithTanh(2, 1, bias=True) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
     def __call__(self, action, f, train=True, **kwargs):        
         output = self.action_net(f)
         if self.train is not None:
             train = self.train
         if train:            
-            action.drift = self.sample(output) > 0.5
+            action.drift = self.sample(output) > 0
         else:
             # drift is a binary value
-            action.drift = output[0] > 0.5
+            action.drift = output[0] > 0
         
         return action
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
-        [current_angle] = selected_features_curr
-        [next_angle] = selected_features_next        
-        return steering_angle_reward(current_angle, next_angle)
+        [current_angle, c_steer] = selected_features_curr
+        [next_angle, n_steer] = selected_features_next
+        reward = steering_angle_reward(current_angle, next_angle)
         
+        # consider drifting only when steering angle is maxed and when the target angle is large
+        if torch.abs(c_steer) > 0.99 and torch.abs(next_angle) > 0.25:
+            return reward if action.drift == True else -1
+        else:
+            return reward if action.drift == False else -1 
+
     def extract_greedy_action(self, action, *args, **kwargs):
-        return [action.drift > 0.5]
+        return [action.drift > 0]
 
     def select_features(self, features, features_vec):
         delta_steering_angle = features.select_player_puck_angle(features_vec)        
-        return torch.tensor([
-            delta_steering_angle
-        ])
+        return features.select_indicies(
+            [
+                SoccerFeatures.PLAYER_PUCK_ANGLE,
+                SoccerFeatures.PREVIOUS_STEER
+            ], 
+            features_vec
+        )
 
 class SpeedActor(BaseActor):
 
