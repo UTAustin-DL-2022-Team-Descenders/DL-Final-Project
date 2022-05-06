@@ -94,7 +94,7 @@ class BaseActor:
             output = OneHotCategorical(logits=probs).sample()
         return output
 
-    def select_features(self, features, features_vec):
+    def select_features(self, features):
 
         # this is only called for top level actors; nested actors are given features directly from their ancestors
         pass
@@ -108,14 +108,14 @@ class BaseActor:
 
         return self.action_net
 
-    def load_model(self, custom_model_name=None, model=None, use_jit=False):
+    def load_model(self, custom_model_name=None, model=None, use_jit=False, conversion=None):
 
         model = model if model else self.action_net
 
         # set the load name of the model. User may provide a custom model name or default to self.model_name
         load_model_name = custom_model_name if custom_model_name else self.model_name
 
-        self.action_net = load_model(load_model_name, load_path=self.model_path, model=model, use_jit=use_jit)
+        self.action_net = load_model(load_model_name, load_path=self.model_path, model=model, use_jit=use_jit, conversion=conversion)
 
         return self.action_net
 
@@ -125,7 +125,7 @@ class SteeringActor(BaseActor):
 
         # Steering action_net
         # inputs: delta steering angle
-        super().__init__(LinearWithTanh(1, 1) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        super().__init__(LinearWithTanh(1, 1, n_hidden=20, bias=False, scale=None, range=None) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
         # Set model path to save/load SteeringActor's action_net
         self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "steering")
