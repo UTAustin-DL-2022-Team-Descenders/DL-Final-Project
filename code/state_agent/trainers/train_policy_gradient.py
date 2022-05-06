@@ -150,8 +150,7 @@ def reinforce(
             validation_trajectories,
             configuration=configuration,
             epoch=epoch,            
-            context=context,
-            focus=focus
+            context=context
         )
 
         if epoch_post_process:

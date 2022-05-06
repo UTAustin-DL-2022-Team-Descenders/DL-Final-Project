@@ -79,8 +79,8 @@ class BaseAgent:
         return action
 
 class Agent(BaseAgent):
-    def __init__(self, *args, target_speed=MAX_SPEED, **kwargs):
-        super().__init__(*args, extractor=SoccerFeatures(), target_speed=target_speed, **kwargs)
+    def __init__(self, *args, extractor=SoccerFeatures(), target_speed=MAX_SPEED, **kwargs):
+        super().__init__(*args, extractor= extractor, target_speed=target_speed, **kwargs)
 
 class BaseTeam:
     agent_type = 'state'
