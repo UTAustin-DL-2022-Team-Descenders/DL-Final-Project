@@ -77,7 +77,8 @@ def reinforce(
             n_steps=600,
             batch_size = 128,
             T = 20,
-            epoch_post_process=None
+            epoch_post_process=None,
+            normalize_returns=False
 ):
         
     slice_net = list(filter(lambda a: a != actor, actors))
@@ -99,7 +100,8 @@ def reinforce(
             configuration=configuration,             
             batch_size=batch_size,
             iterations=n_iterations,
-            context=context
+            context=context,
+            normalize_returns=normalize_returns
         )
 
         # perform the validation rollouts
@@ -129,6 +131,7 @@ def reinforce_epoch(
     iterations=100,      
     batch_size=128,
     reward_window=1,
+    normalize_returns=False,
     context=None  
 ):
 
@@ -168,7 +171,8 @@ def reinforce_epoch(
             # Compute the features         
             feature_dict = configuration.extract_trajectory(trajectory[i], player_team, player_on_team)
             real_action = configuration.extract_action(trajectory[i], player_id)
-            state = actor.select_features(agent.extractor, agent.get_feature_vector(**feature_dict, last_state=last_kart_state, last_action=last_action))
+            extractor = agent.get_feature_vector(**feature_dict, last_state=last_kart_state, last_action=last_action)
+            state = actor.select_features(extractor)
             features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
             real_actions.append( real_action)
             last_kart_state.append( feature_dict['kart_info'] )
@@ -214,11 +218,11 @@ def reinforce_epoch(
     actions = torch.as_tensor(actions, dtype=torch.float32)
     features = torch.stack(features)
 
+    if normalize_returns:        
+        returns = (returns - returns.mean()) / (returns.std() + 0.00001)
+
     print(returns)
-    
-    # enable this if not using discrete rewards! 
-    #print(returns.mean(), returns.std())
-    #returns = (returns - returns.mean()) / (returns.std() + 0.00001)
+
     avg_expected_log_return = []
     for it in range(iterations):
         batch_ids = torch.randint(0, len(returns), (batch_size,))
