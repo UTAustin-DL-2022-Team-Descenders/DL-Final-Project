@@ -1,7 +1,6 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/19/2022
 
-from .features import SoccerFeatures, cart_location, get_puck_center, cart_speed
 import torch
 import sys, os
 import pystk
@@ -11,15 +10,16 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageFont, ImageDraw
 from state_agent.utils import map_image
 from state_agent.runner import to_native
+from state_agent.agents.subnets.features import SoccerFeatures, cart_location, get_puck_center, cart_speed
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 font = ImageFont.load_default()
-    
+
 
 # tried to break this into multiple classes, but Ray doesn't seem to work when there's a subclass used
 @ray.remote
 class Rollout:
-    def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1, 
+    def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1,
                  mode="track", players=[(0, False, "tux")], num_karts=1):
         # Init supertuxkart
         if not render:
@@ -31,14 +31,14 @@ class Rollout:
         config.screen_width = screen_width
         config.screen_height = screen_height
         pystk.init(config)
-        
+
         self.frame_skip = frame_skip
         self.render = render
-        self.track_info = None  
-        self.mode = mode   
-        
+        self.track_info = None
+        self.mode = mode
+
         self.create_race(track, players, num_karts)
-    
+
     def create_race(self, track, players, num_karts):
         race_config = None
         if self.mode == "track":
@@ -49,7 +49,7 @@ class Rollout:
             for player in players:
                 race_config.players.append(self._make_config(*player))
         self.race = pystk.Race(race_config)
-        self.race.start()  
+        self.race.start()
 
     def initialize_state(self, world_info, randomize=False, ball_location=None, ball_velocity=None, player_location=None, **kwargs):
         if self.mode == "track":
@@ -67,7 +67,7 @@ class Rollout:
         # Gather world information
         kart_info = world_info.players[0].kart
 
-        agent_data = {}    
+        agent_data = {}
         if self.mode == "track":
             agent_data = {'track_info': self.track_info, 'kart_info': kart_info}
         elif self.mode == "soccer":
@@ -96,19 +96,19 @@ class Rollout:
         self.race.step()
         data = []
 
-        world_info = pystk.WorldState()    
+        world_info = pystk.WorldState()
         if initializer:
             initializer(world_info, randomize=randomize, **kwargs)
         else:
             self.initialize_state(world_info, randomize=randomize, **kwargs)
 
         world_info.update()
-    
+
         previous_score_sum = np.sum(world_info.soccer.score)
         reset_needed = False
-        
-        for i in range(n_steps // self.frame_skip):            
-            world_info = pystk.WorldState()        
+
+        for i in range(n_steps // self.frame_skip):
+            world_info = pystk.WorldState()
             world_info.update()
 
             agent_data = self.agent_data(world_info)
@@ -130,7 +130,7 @@ class Rollout:
             if score_sum != previous_score_sum:
                 previous_score_sum = score_sum
                 reset_needed = True
-                
+
             # is the puck in the air?
             if reset_needed and world_info.soccer.ball.location[1] < 1.0:
                 self.initialize_state(world_info, randomize=randomize, **kwargs)
@@ -144,10 +144,10 @@ soccer_feature_extractor = SoccerFeatures
 
 def show_video_soccer(data, fps=30):
     import imageio
-    from IPython.display import Video, display 
-    
-    frames = [d['image'] for d in data]    
-    frames_map = [d['map'] for d in data]    
+    from IPython.display import Video, display
+
+    frames = [d['image'] for d in data]
+    frames_map = [d['map'] for d in data]
     actions = [t['action'] for t in data]
     features = [soccer_feature_extractor(**t) for t in data]
     distances = [np.linalg.norm(get_puck_center(t['soccer_state']) - cart_location(t['kart_info'])) for t in data]
@@ -156,26 +156,26 @@ def show_video_soccer(data, fps=30):
     images = []
     map_images = []
     for frame, action, distance, feature, speed in zip(frames, actions, distances, features, speeds):
-        img = Image.fromarray(frame)        
-        image_to_edit = ImageDraw.Draw(img)        
-        image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)))         
-        image_to_edit.text((10, 20), "speed: {}".format(speed))         
-        image_to_edit.text((10, 30), "steering: {}".format(action.steer))         
-        image_to_edit.text((10, 40), "drift: {}".format(action.drift))         
-        image_to_edit.text((10, 50), "brake: {}".format(action.brake))         
-        image_to_edit.text((10, 60), "distance: {}".format(distance))         
+        img = Image.fromarray(frame)
+        image_to_edit = ImageDraw.Draw(img)
+        image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)))
+        image_to_edit.text((10, 20), "speed: {}".format(speed))
+        image_to_edit.text((10, 30), "steering: {}".format(action.steer))
+        image_to_edit.text((10, 40), "drift: {}".format(action.drift))
+        image_to_edit.text((10, 50), "brake: {}".format(action.brake))
+        image_to_edit.text((10, 60), "distance: {}".format(distance))
         image_to_edit.text((10, 70), "angle puck: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)))         
         image_to_edit.text((10, 80), "angle goal: {}".format(soccer_feature_extractor.select_player_goal_angle(feature)))         
         images.append(np.array(img))
 
     for img, action, distance, feature, speed in zip(frames_map, actions, distances, features, speeds):
-        image_to_edit = ImageDraw.Draw(img)    
+        image_to_edit = ImageDraw.Draw(img)
         image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)), fill=(0, 0, 0))
-        image_to_edit.text((10, 20), "speed: {}".format(speed), fill=(0, 0, 0))         
+        image_to_edit.text((10, 20), "speed: {}".format(speed), fill=(0, 0, 0))
         image_to_edit.text((10, 30), "steering: {}".format(action.steer), fill=(0, 0, 0))
-        image_to_edit.text((10, 40), "drift: {}".format(action.drift), fill=(0, 0, 0))  
-        image_to_edit.text((10, 50), "brake: {}".format(action.brake), fill=(0, 0, 0))         
-        image_to_edit.text((10, 60), "distance: {}".format(distance), fill=(0, 0, 0))    
+        image_to_edit.text((10, 40), "drift: {}".format(action.drift), fill=(0, 0, 0))
+        image_to_edit.text((10, 50), "brake: {}".format(action.brake), fill=(0, 0, 0))
+        image_to_edit.text((10, 60), "distance: {}".format(distance), fill=(0, 0, 0))
         image_to_edit.text((10, 70), "angle diff: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)), fill=(0, 0, 0))                     
         map_images.append(np.array(img))
 
@@ -229,43 +229,45 @@ def run_soccer_agent(agent, rollout=viz_rollout_soccer, **kwargs):
     return data
 
 viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
-def rollout_many(many_agents, **kwargs):    
+def rollout_many(many_agents, **kwargs):
     ray_data = []
     for i, agent in enumerate(many_agents):
-         ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )    
+         ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )
     return ray.get(ray_data)
 
 def dummy_agent(**kwargs):
     action = pystk.Action()
     action.acceleration = 1
     return action
-        
+
 
 # StateAgent agnostic Save & Load model functions. Used in state_agent.py Match
-def save_model(model, f_path, file=__file__, jit=False):
+def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=True):
     from os import path
-    save_path = path.join(path.dirname(path.abspath(file)), f_path )
-    if jit:
+    if use_jit:
+        model.eval()
         model_scripted = torch.jit.script(model)
-        model_scripted.save(save_path)
-    else:
-        torch.save(model.state_dict(), save_path)
+        model_scripted.save(path.join(save_path, f"{model_name}.pt"))
+    else: # Otherwise use Pickle
+        torch.save(model.state_dict(), path.join(save_path, f"{model_name}.th"))
+
+    print(f"Saved {model_name} to {save_path}")
 
 
-def load_model(f_path, file=__file__, model=None):
-    from os import path
-    import sys
-    load_path = path.join(path.dirname(path.abspath(file)), f_path)
+def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=True, model_class=None):
+
     try:
-        if model:
-            model.load_state_dict(torch.load(load_path))
+        if use_jit:
+            model = torch.jit.load(os.path.join(load_path, f"{model_name}.pt"))
+        else: # Otherwise use Pickle. Need to use model_class for this
+            model = model_class()
+            model.load_state_dict(torch.load(os.path.join(load_path, f"{model_name}.th")))
             model.eval()
-        else:   
-            model = torch.jit.load(load_path)                     
-        #print("Loaded pre-existing ActionNetwork from", load_path)
+
+        print("Loaded pre-existing network from", load_path)
         return model
     except FileNotFoundError as e:
-        return None
+        sys.exit(f"Problem loading model: {e.strerror}")
     except ValueError as e:
         raise e
 
