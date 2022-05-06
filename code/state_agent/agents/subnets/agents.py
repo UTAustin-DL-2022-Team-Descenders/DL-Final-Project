@@ -30,7 +30,7 @@ class BaseAgent:
 
     MAX_STATE = 5
 
-    def __init__(self, *args, extractor=None, train=False, target_speed=None, **kwargs):
+    def __init__(self, *args, extractor=SoccerFeatures(), train=False, target_speed=None, **kwargs):
         self.nets = args
         self.train = train
         self.extractor = extractor
@@ -45,7 +45,7 @@ class BaseAgent:
     def invoke_actors(self, action, f):
         [self.invoke_actor(actor, action, f) for actor in self.nets]
 
-    def get_feature_vector(self, kart_info, soccer_state, **kwargs):        
+    def get_feature_vector(self, kart_info, soccer_state, **kwargs):
         return self.extractor.get_feature_vector(
             kart_info, 
             soccer_state, 
@@ -57,11 +57,11 @@ class BaseAgent:
         self.last_output = None
         self.last_state = []
 
-    def __call__(self, kart_info, soccer_state, **kwargs):
+    def __call__(self, track_info, object_state, kart_info, **kwargs):
         action = Action()
         action.acceleration = self.accel
 
-        f = self.get_feature_vector(kart_info, soccer_state, last_state=self.last_state, last_action=self.last_output)
+        f = self.get_feature_vector(kart_info, object_state, last_state=self.last_state, last_action=self.last_output)
         f = torch.as_tensor(f).view(-1)
 
         # save previous kart state
@@ -69,7 +69,7 @@ class BaseAgent:
         if len(self.last_state) > self.MAX_STATE:
             self.last_state.pop(0)
 
-        self.invoke_actors(action, f)         
+        self.invoke_actors(action, f)
         if self.use_accel:
             action.acceleration = self.accel       
 

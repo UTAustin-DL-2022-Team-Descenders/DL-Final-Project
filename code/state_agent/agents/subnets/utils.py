@@ -19,8 +19,8 @@ font = ImageFont.load_default()
 # tried to break this into multiple classes, but Ray doesn't seem to work when there's a subclass used
 @ray.remote
 class Rollout:
-    def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1, 
-                 mode="track", players=[(0, False, "tux")], num_karts=1):
+    def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1,
+                 mode="track", players=[(0, False, "tux")], num_karts=1, focus='puck'):
         # Init supertuxkart
         if not render:
             config = pystk.GraphicsConfig.none()
@@ -35,7 +35,9 @@ class Rollout:
         self.frame_skip = frame_skip
         self.render = render
         self.track_info = None  
-        self.mode = mode   
+        self.mode = mode
+        self.num_karts = num_karts
+        self.focus = focus
         
         self.create_race(track, players, num_karts)
     
@@ -49,7 +51,7 @@ class Rollout:
             for player in players:
                 race_config.players.append(self._make_config(*player))
         self.race = pystk.Race(race_config)
-        self.race.start()  
+        self.race.start()
 
     def initialize_state(self, world_info, randomize=False, ball_location=None, ball_velocity=None, player_location=None, **kwargs):
         if self.mode == "track":
@@ -76,6 +78,8 @@ class Rollout:
         if self.render:
             agent_data['image'] = np.array(self.race.render_data[0].image)
             if self.mode == "soccer":
+                # NOTE! If self.num_karts = 1 then team 1 will be our state agent
+                #   else if = 2 then team 1 will be the AI and team 2 is our state agent
                 agent_data['map'] = map_image([
                     # team 1
                     [{'kart': to_native(world_info.karts[p])} for p in range(0, len(world_info.karts), 2) ], 
@@ -84,6 +88,28 @@ class Rollout:
                 ], to_native(world_info.soccer))
 
         return agent_data
+
+    def opponent_data(self, world_info):
+        # Gather world information
+        kart_info = world_info.karts[0]
+
+        opponent_data = {}
+        if self.mode == "track":
+            opponent_data = {'track_info': self.track_info, 'kart_info': kart_info}
+        elif self.mode == "soccer":
+            opponent_data = {'track_info': None, 'soccer_state': world_info.soccer, 'kart_info': kart_info}
+
+        # if self.render:
+        #     opponent_data['image'] = np.array(self.race.render_data[0].image)
+        #     if self.mode == "soccer":
+        #         opponent_data['map'] = map_image([
+        #             # team 1
+        #             [{'kart': to_native(world_info.karts[p])} for p in range(0, len(world_info.karts), 2) ],
+        #             # team 2
+        #             [{'kart': to_native(world_info.karts[p])} for p in range(1, len(world_info.karts), 2) ]
+        #         ], to_native(world_info.soccer))
+
+        return opponent_data
 
     def _make_config(self, team_id, is_ai, kart):
         PlayerConfig = pystk.PlayerConfig
@@ -95,6 +121,7 @@ class Rollout:
         self.race.restart()
         self.race.step()
         data = []
+        data_opponent = []
 
         world_info = pystk.WorldState()    
         if initializer:
@@ -114,7 +141,13 @@ class Rollout:
             agent_data = self.agent_data(world_info)
 
             # Act
-            action = agent(**agent_data)
+            if self.focus == 'puck':
+                opponent_data = None
+                action = agent(agent_data['track_info'], agent_data['soccer_state'], agent_data['kart_info'])
+            elif self.num_karts == 2 and self.focus == 'opponent':
+                opponent_data = self.opponent_data(world_info)
+                agent_data['kart_info_opp'] = opponent_data['kart_info']
+                action = agent(agent_data['track_info'], agent_data['kart_info_opp'], agent_data['kart_info'])
 
             game_action = pystk.Action(
                 **dict(vars(action))
@@ -138,6 +171,7 @@ class Rollout:
 
             # Save all the relevant data
             data.append(agent_data)
+            data_opponent.append(opponent_data)
         return data
 
 soccer_feature_extractor = SoccerFeatures()
@@ -221,15 +255,16 @@ def show_steering_graph(data):
     plt.plot(steer)
     plt.show()
 
-viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
-def run_soccer_agent(agent, rollout=viz_rollout_soccer, **kwargs):
+def run_soccer_agent(agent, rollout=None, num_karts=1, focus='puck', **kwargs):
+    if not rollout:
+        rollout = Rollout.remote(400, 300, mode="soccer", num_karts=num_karts, focus=focus)
     data = ray.get(rollout.__call__.remote(agent, **kwargs))
     show_video_soccer(data)
     show_graph(data)
     return data
 
-viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
-def rollout_many(many_agents, **kwargs):    
+def rollout_many(many_agents, num_karts=1, focus='puck', num_rollout=4, **kwargs):
+    viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer", num_karts=num_karts, focus=focus) for i in range(num_rollout)]
     ray_data = []
     for i, agent in enumerate(many_agents):
          ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )    

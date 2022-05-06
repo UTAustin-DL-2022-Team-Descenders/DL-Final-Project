@@ -2,7 +2,7 @@
 # Creation Date: 4/19/2022
 
 import numpy as np
-from .features import cart_location, get_puck_center, MAX_SPEED
+from .features import cart_location, get_puck_center, get_opponent_center, MAX_SPEED
 
 MAX_STEERING_ANGLE_REWARD = np.pi
 MAX_SPEED_REWARD = 3.0
@@ -134,6 +134,11 @@ class SoccerBallDistanceObjective(TargetDistanceObjective):
 
     def get_target(self, t):        
         return get_puck_center(t['soccer_state'])
+
+class OpponentDistanceObjective(TargetDistanceObjective):
+
+    def get_target(self, t):
+        return get_opponent_center(t['kart_info_opp'])
 
     
         

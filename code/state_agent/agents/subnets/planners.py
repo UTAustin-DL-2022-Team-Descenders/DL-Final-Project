@@ -188,7 +188,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
                 
     def select_features(self, features, features_vec):
         pp_angle = features.select_player_puck_angle(features_vec)
-        counter_steer_angle = features.select_player_puck_countersteer_angle(features_vec)
+        # counter_steer_angle = features.select_player_puck_countersteer_angle(features_vec)
         delta_speed = features.select_delta_speed(features_vec)
         target_speed = features.select_target_speed(features_vec)
                 
@@ -202,7 +202,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             target_speed,
 
             # steer the puck towards the goal
-            counter_steer_angle,
+            pp_angle,  # counter_steer_angle
             delta_speed,
             target_speed,
             
