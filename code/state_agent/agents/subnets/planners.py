@@ -4,14 +4,15 @@
 import torch
 import numpy as np
 import copy
+import os
 from torch.nn import functional as F
 
 from state_agent.agents.subnets.agents import Action
 
-from .features import MIN_WALL_SPEED, NEAR_WALL_OFFSET, NEAR_WALL_STD, PUCK_RADIUS, MAX_SPEED, SoccerFeatures
-from .action_nets import BooleanClassifier, LinearNetwork, Selection, LinearWithTanh
-from .actors import BaseActor
-from .rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, continuous_causal_reward_ext, steering_angle_reward
+from state_agent.agents.subnets.features import MIN_WALL_SPEED, NEAR_WALL_OFFSET, NEAR_WALL_STD, PUCK_RADIUS, MAX_SPEED, SoccerFeatures
+from state_agent.agents.subnets.action_nets import BooleanClassifier, LinearNetwork, Selection, LinearWithTanh
+from state_agent.agents.subnets.actors import BaseActor
+from state_agent.agents.subnets.rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, continuous_causal_reward_ext, steering_angle_reward
 
 class Classifier(BaseActor):
 
@@ -147,6 +148,11 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         ) if action_net is None else action_net, train=train, sample_type="bernoulli")
         self.selection_bias = torch.Tensor([0.0, 0.0, 0.05]) # boost the 'reccovery' case otherwise it will generally be overshadowed because it is a rare event
         self.classifiers = classifiers
+
+        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "planner")
+
+        # Set model name for saving and loading action net
+        self.model_name = "planner_net"
         
     #def set_feature_offset(self, offset):
         # offset is the sum of:
@@ -236,7 +242,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         return torch.concat([c.log_prob(input[:,idx], actions=actions[:,idx]).unsqueeze(1) for idx, c in enumerate(self.classifiers)], dim=1)
 
 """
-The goal of the fine tuned planner is to use the outputs of the base planner categories as the 'mean' 
+The goal of the fine tuned planner is to use the outputs of the base planner categories as the 'mean'
 of a stochastic monte-carlo search for finding the best target angle and speed to optimize an objective function.
 
 In simpler terms, it will train by generating noise to offset the base planners output and learn what offsets to apply before passing outputs to subnetworks.

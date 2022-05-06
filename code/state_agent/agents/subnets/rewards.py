@@ -2,7 +2,7 @@
 # Creation Date: 4/19/2022
 
 import numpy as np
-from .features import cart_location, get_puck_center, MAX_SPEED
+from state_agent.agents.subnets.features import cart_location, get_puck_center, MAX_SPEED
 
 MAX_STEERING_ANGLE_REWARD = np.pi
 MAX_SPEED_REWARD = 3.0
@@ -13,7 +13,7 @@ def lateral_distance_reward(current_lat, next_lat):
     # lateral distance reward
     reward = 0
     if np.abs(current_lat) > 1:
-    
+
         # if the lateral distance shrinking?
         if np.abs(next_lat) < np.abs(current_lat):
             # less strong reward
@@ -23,14 +23,14 @@ def lateral_distance_reward(current_lat, next_lat):
             reward = -1
     else:
         # strong reward
-        reward = 2    
+        reward = 2
     return reward
 
 def lateral_distance_causal_reward(current_lat, next_lat):
     # lateral distance reward
     reward = 0
     if np.abs(next_lat) > 1:
-    
+
         # if the lateral distance shrinking?
         if np.abs(next_lat) < np.abs(current_lat):
             # less strong reward
@@ -40,7 +40,7 @@ def lateral_distance_causal_reward(current_lat, next_lat):
             reward = -1
     else:
         # strong reward
-        reward = 2    
+        reward = 2
     return reward
 
 def distance_traveled_reward(current_distance, next_distance, max=100):
@@ -50,7 +50,7 @@ def distance_traveled_reward(current_distance, next_distance, max=100):
 def continuous_causal_reward(current_, next_, threshold, max):
 
     reward = 0
-    if np.abs(next_) > threshold:    
+    if np.abs(next_) > threshold:
         # is the shrinking?
         if np.abs(next_) < np.abs(current_):
             # less strong reward
@@ -86,7 +86,7 @@ def steering_angle_reward(current_angle, next_angle):
     (c_delta) = current_angle
     (n_delta) = next_angle
     multiplier = 1
-    
+
     return multiplier * continuous_causal_reward(c_delta, n_delta, threshold=np.deg2rad(0.5), max=MAX_STEERING_ANGLE_REWARD)
 
 def speed_reward(current_speed, next_speed):
@@ -133,15 +133,15 @@ class TargetDistanceObjective(ObjectiveEvaluator):
 
     def calculate_trajectory_score(self, trajectory):
 
-        # calculate the score as the normalized distance away from the target at each time step   
+        # calculate the score as the normalized distance away from the target at each time step
         total = 0
-        for t in trajectory: 
+        for t in trajectory:
             total += self.calculate_state_score(t)
 
         return total
-        
+
     def reduce(self, trajectories):
-        results = [self.calculate_trajectory_score(trajectory) for trajectory in trajectories]               
+        results = [self.calculate_trajectory_score(trajectory) for trajectory in trajectories]
         return np.min(np.array(results)), np.max(np.array(results)), np.median(np.array(results))
 
     def is_better_than(self, a, b):
@@ -149,8 +149,5 @@ class TargetDistanceObjective(ObjectiveEvaluator):
 
 class SoccerBallDistanceObjective(TargetDistanceObjective):
 
-    def get_target(self, t):        
+    def get_target(self, t):
         return get_puck_center(t['soccer_state'])
-
-    
-        
