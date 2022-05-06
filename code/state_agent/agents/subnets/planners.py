@@ -165,6 +165,9 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
     def __call__(self, action, f, extractor:SoccerFeatures=None, train=False, **kwargs):
         
+        if self.train is not None:
+            train = self.train
+
         call_output = outputs = self.action_net(f, self.selection_bias if train == False else None)
         if train:                        
             call_output = torch.Tensor([c.sample(call_output[idx]) for idx, c in enumerate(self.classifiers)])
@@ -253,6 +256,7 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
         SoccerFeatures.PLAYER_PUCK_DISTANCE,            
         SoccerFeatures.SPEED,        
         SoccerFeatures.PREVIOUS_SPEED,
+        SoccerFeatures.TARGET_SPEED,
         SoccerFeatures.PLAYER_PUCK_ANGLE,
         SoccerFeatures.PUCK_GOAL_DISTANCE,
         SoccerFeatures.PUCK_GOAL_ANGLE,
@@ -260,14 +264,14 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
     ]
 
     IN_FEATURE_SPEED = 1
-    IN_FEATURE_PLANNER_CHOICE = 6
-    IN_FEATURE_TARGET_SPEED = 7
+    IN_FEATURE_PLANNER_CHOICE = 7
+    IN_FEATURE_TARGET_SPEED = 3
 
-    PLANNER_FEATURE_INDEX = len(FEATURES)
-    FEATURE_INDEX = 5
+    OUT_FEATURE_SPEED_OFFSET = 1
+
     INPUTS = len(FEATURES)
     OUTPUTS = 2
-    HIDDEN = 20
+    HIDDEN = 30
     
     def __init__(self, action_net=None, train=None, mode=None, **kwargs):
         # Steering action_net
@@ -307,7 +311,7 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
         )     
         self.mode = mode  
         
-    def __call__(self, action, f, train=False, **kwargs):  
+    def __call__(self, action, f, train=False, extractor:SoccerFeatures=None, **kwargs):
         
         if self.train is not None:
             train = self.train
@@ -319,79 +323,77 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
 
         if self.mode == "steering":
             # only train the steering
-            output[1] = output[2] = 0
+            offset[1] = 0
         elif self.mode == "speed":
             # only train the speed
             offset[0] = 0
 
-        # the network will output an offset of the current speed, target speed needs to be determined from this
-        offset = torch.tensor([
-            offset[0],            
-            offset[1],
-            0
-        ], device=offset.device)
+        # the network will output an offset to the target speed
 
-        # current speed
-        speed = self.get_input_feature(f, self.IN_FEATURE_SPEED)
+        # target speed
+        target_speed = extractor.select_target_speed()
+        speed = extractor.select_speed()
 
         # add offset from the fine-tuned net
-        output += offset
-        # adjust the target speed accordingly
-        output[PlayerPuckGoalPlannerActor.OUT_FEATURE_TARGET_SPEED] = offset[1] + speed
+        # set the output features
+        extractor.set_features([
+            SoccerFeatures.STEERING_ANGLE,
+            SoccerFeatures.TARGET_SPEED
+        ], extractor.select_indicies([
+            SoccerFeatures.STEERING_ANGLE,
+            SoccerFeatures.TARGET_SPEED
+        ]) + offset)
 
-        self.planner_net.invoke_subnets(action, output, **kwargs)
+        # adjust the delta speed accordingly
+        if self.mode != "steering":
+            extractor.set_features([
+                SoccerFeatures.DELTA_SPEED
+            ], [
+                target_speed - speed
+            ])
         
         return offset
+
+    def copy(self, action_net):
+        return self.__class__(action_net, train=self.train, mode=self.mode)
     
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
-        (c_pp_dist, c_speed, c_prev_speed, c_pp_angle, c_goal_dist, c_pg_angle, *_) = selected_features_curr
-        (n_pp_dist, n_speed, n_prev_speed, n_pp_angle, n_goal_dist, n_pg_angle, *_) = selected_features_next
-
-        # get the planner choice
-        choice = greedy_action[0]
+        (c_pp_dist, c_speed, c_prev_speed, c_target_speed, c_pp_angle, c_goal_dist, c_pg_angle, c_choice, *_) = selected_features_curr
+        (n_pp_dist, n_speed, n_prev_speed, n_target_speed, n_pp_angle, n_goal_dist, n_pg_angle, n_choice, *_) = selected_features_next
 
         reward = 0
 
         #print("choice", choice)
 
         # reward the outcomes that minimizes the puck's distance to the goal
-        if choice == PlayerPuckGoalPlannerActor.CLASSIFIER_PUCK_TO_GOAL:               
-            reward = continuous_causal_reward_ext(c_goal_dist, n_goal_dist, 0.1, MAX_DISTANCE) / MAX_DISTANCE
+        if c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_PUCK_TO_GOAL:
+            reward = continuous_causal_reward_ext(c_goal_dist, n_goal_dist, 0.1, MAX_DISTANCE) ** 2
         
         # reward the outcomes that minimizes both the player/puck to goal angle and distance to the puck       
-        elif choice == PlayerPuckGoalPlannerActor.CLASSIFIER_HEAD_TO_PUCK:
-            reward_dist = continuous_causal_reward_ext(c_pp_dist, n_pp_dist, 0.1, MAX_DISTANCE) / MAX_DISTANCE
+        elif c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_HEAD_TO_PUCK:
+            reward_dist = continuous_causal_reward_ext(c_pp_dist, n_pp_dist, 0.1, MAX_DISTANCE) ** 2
             reward_angle = continuous_causal_reward_ext(torch.abs(c_pp_angle - c_pg_angle), torch.abs(n_pp_angle - n_pg_angle), 0.1, MAX_STEERING_ANGLE_REWARD) / MAX_STEERING_ANGLE_REWARD
 
             # weight the puck to goal higher
             reward = 0
             if self.mode == None or self.mode == "steering":
-                reward += reward_dist * 0.25
-            if self.mode == None or self.mode == "speed":
                 reward += reward_angle
-            reward /= 2
+            if self.mode == None or self.mode == "speed":
+                reward += reward_dist * 0.25
             
-        elif choice == PlayerPuckGoalPlannerActor.CLASSIFIER_STUCK_AGAINST_WALL:
-            reward = continuous_causal_reward_ext(c_speed, n_speed, 0.1, MAX_SPEED) / MAX_SPEED if n_speed < 0 else -1
+        elif c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_STUCK_AGAINST_WALL:
+            # maximize the approach towards the target speed
+            reward = continuous_causal_reward_ext(c_speed - c_target_speed, n_speed - n_target_speed, 0.1, MAX_SPEED) / MAX_SPEED
 
         return [reward] * self.OUTPUTS
     
     def extract_greedy_action(self, action, f):        
         # determine the steering direction and speed  
-        input = self.get_planner_features(f)
-        action_new = Action()
-        output = self.planner_net(action_new, input)
-        output = self.action_net(self.get_input_features(f, output)).detach().numpy()
-        return np.concatenate([
-            np.array([self.planner_net.action_net.last_choice]),            
-            output > 0, 
-        ])
+        output = self.action_net(f).detach().numpy()
+        return output > 0
 
-    def select_features(self, features, features_vec):
-        return torch.concat([
-            features.select_indicies(self.FEATURES, features_vec),
-            self.planner_net.select_features(features, features_vec)
-        ])
+    def select_features(self, features):
+        return features.select_indicies(self.FEATURES)
         
     def log_prob(self, output, actions):
         # skip the first value of the actions (it contains the planner choice)
