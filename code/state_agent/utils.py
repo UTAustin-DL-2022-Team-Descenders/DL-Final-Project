@@ -7,7 +7,7 @@ import torch
 from glob import glob
 
 from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms.functional as TF
+# import torchvision.transforms.functional as TF
 from enum import IntEnum
 
 TRAINING_PATH = os.path.join(os.path.abspath(os.path.dirname(__file__)), 'imitation_data')

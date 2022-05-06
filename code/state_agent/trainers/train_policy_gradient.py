@@ -5,9 +5,10 @@ import copy
 import torch
 import numpy as np
 from torch.distributions import Bernoulli, Normal
-from state_agent.agents.subnets.rewards import SoccerBallDistanceObjective
+from state_agent.agents.subnets.rewards import SoccerBallDistanceObjective, OpponentDistanceObjective
 from state_agent.agents.subnets.utils import DictObj, rollout_many
 from state_agent.agents.subnets.agents import Agent
+from state_agent.agents.subnets.features import OpponentFeatures
 
 def collect_dist(trajectories):
     results = []
@@ -34,9 +35,12 @@ class SoccerReinforcementConfiguration:
 
     mode = "soccer"
 
-    def __init__(self) -> None:
-        super().__init__()        
-        self.evaluator = SoccerBallDistanceObjective() 
+    def __init__(self, focus='puck') -> None:
+        super().__init__()
+        if focus == 'puck':
+            self.evaluator = SoccerBallDistanceObjective()
+        elif focus == 'opponent':
+            self.evaluator = OpponentDistanceObjective()
         self.extract_trajectory = raw_trajectory
         self.extract_action = get_player_action
         self.agent = Agent      
@@ -77,7 +81,8 @@ def reinforce(
             n_steps=600,
             batch_size = 128,
             T = 20,
-            epoch_post_process=None
+            epoch_post_process=None,
+            focus='puck'
 ):
         
     slice_net = list(filter(lambda a: a != actor, actors))
@@ -87,8 +92,29 @@ def reinforce(
 
         # perform the rollouts 
         actor.action_net.train()
-        agents = [configuration.agent(*slice_net, actor, train=True) for i in range(n_trajectories)]
-        trajectories = rollout_many(agents, mode=configuration.mode, randomize=True, initializer=configuration.rollout_initializer, n_steps=n_steps)
+        if focus == 'puck':
+            agents = [configuration.agent(*slice_net, actor, train=True) for i in range(n_trajectories)]
+            trajectories = rollout_many(agents, mode=configuration.mode, randomize=True, initializer=configuration.rollout_initializer, n_steps=n_steps)
+        elif focus == 'opponent':
+            agents = [
+                configuration.agent(
+                    *slice_net,
+                    actor,
+                    train=True,
+                    extractor=OpponentFeatures()
+                )
+                for i in range(n_trajectories)
+            ]
+            trajectories = rollout_many(
+                agents,
+                mode=configuration.mode,
+                randomize=True,
+                initializer=configuration.rollout_initializer,
+                n_steps=n_steps,
+                num_karts=2,
+                focus=focus,
+                num_rollout=2
+            )
         actor.action_net.eval()
         
         context = reinforce_epoch(
@@ -99,19 +125,33 @@ def reinforce(
             configuration=configuration,             
             batch_size=batch_size,
             iterations=n_iterations,
-            context=context
+            context=context,
+            focus=focus
         )
 
         # perform the validation rollouts
-        validation_agents = [configuration.agent(*slice_net, actor) for i in range(n_validations)]
-        validation_trajectories = rollout_many(validation_agents, mode=configuration.mode, randomize=True, n_steps=n_steps)
+        if focus == 'puck':
+            validation_agents = [configuration.agent(*slice_net, actor) for i in range(n_validations)]
+            validation_trajectories = rollout_many(validation_agents, mode=configuration.mode, randomize=True, n_steps=n_steps)
+        elif focus == 'opponent':
+            validation_agents = [configuration.agent(*slice_net, actor, extractor=OpponentFeatures()) for i in range(n_validations)]
+            validation_trajectories = rollout_many(
+                validation_agents,
+                mode=configuration.mode,
+                randomize=True,
+                n_steps=n_steps,
+                num_karts=2,
+                focus=focus,
+                num_rollout=2
+            )
         
         context, updated = validate_epoch(
             actor,
             validation_trajectories,
             configuration=configuration,
             epoch=epoch,            
-            context=context
+            context=context,
+            focus=focus
         )
 
         if epoch_post_process:
@@ -129,7 +169,8 @@ def reinforce_epoch(
     iterations=100,      
     batch_size=128,
     reward_window=1,
-    context=None  
+    context=None,
+    focus='puck'
 ):
 
     action_net = actor.action_net
@@ -166,9 +207,13 @@ def reinforce_epoch(
         agent = agents[num % len(trajectories)] 
         for i in range(len(trajectory)):
             # Compute the features         
-            feature_dict = configuration.extract_trajectory(trajectory[i], player_team, player_on_team)
+            feature_dict = configuration.extract_trajectory(trajectory[i], player_team, player_on_team)  # just returns trajectory[i]
             real_action = configuration.extract_action(trajectory[i], player_id)
-            state = actor.select_features(agent.extractor, agent.get_feature_vector(**feature_dict, last_state=last_kart_state, last_action=last_action))
+            # state = actor.select_features(agent.extractor, agent.get_feature_vector(**feature_dict, last_state=last_kart_state, last_action=last_action))
+            if focus == 'puck':  # TODO: check if last_state/last_action has an effect
+                state = actor.select_features(agent.extractor, agent.get_feature_vector(**feature_dict, last_state=last_kart_state, last_action=last_action))
+            elif focus == 'opponent':
+                state = actor.select_features(agent.extractor, agent.get_feature_vector(feature_dict['kart_info'], feature_dict['kart_info_opp'], last_state=last_kart_state, last_action=last_action))
             features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
             real_actions.append( real_action)
             last_kart_state.append( feature_dict['kart_info'] )
@@ -261,7 +306,7 @@ def validate_epoch(
     # compute mean performance
     player_team = 0 # XXX
     player_on_team = 0 # XXX
-    player_trajectories = [[configuration.extract_trajectory(t, player_team, player_on_team) for t in trajectory] for trajectory in trajectories]
+    player_trajectories = [[configuration.extract_trajectory(t, player_team, player_on_team) for t in trajectory] for trajectory in trajectories]  # just returns the trajectory
     score = configuration.evaluator.reduce(player_trajectories)
 
     print('epoch = %d dist = %s, best_dist = %s '%(epoch, score, best_score))
