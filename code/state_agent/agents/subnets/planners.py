@@ -138,9 +138,9 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         super().__init__(Selection(
             list(map(lambda x: x.action_net, classifiers)),
             self.ranges[-1][1],
-            self.LABEL_FEATURES,
-            [0.0, 0.0, 0.25] # boost the 'reccovery' case otherwise it will generally be overshadowed because it is a rare event
+            self.LABEL_FEATURES
         ) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        self.selection_bias = torch.Tensor([0.0, 0.0, 0.05]) # boost the 'reccovery' case otherwise it will generally be overshadowed because it is a rare event
         self.classifiers = classifiers
         self.speed_net = speed_net
         self.steering_net = steering_net
@@ -150,12 +150,12 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
     def __call__(self, action, f, train=False, **kwargs):
         
-        call_output = outputs = self.action_net(f)
+        call_output = outputs = self.action_net(f, self.selection_bias if train == False else None)
         if train:                        
             call_output = torch.Tensor([c.sample(call_output[idx]) for idx, c in enumerate(self.classifiers)])
             # get labels
             y = self.action_net.get_labels(f)
-            outputs = self.action_net.choose(call_output, y)
+            outputs = self.action_net.choose(call_output, y, None) # bias is None for training
         
         # the subnetworks are not trained
         self.invoke_subnets(action, outputs, **kwargs)
@@ -164,11 +164,11 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         return call_output
 
     def invoke_subnets(self, action, input, **kwargs):
-        # steering direction - raw output        
+        # steering direction - raw output
         self.steering_net(action, input[[self.DELTA_STEERING_ANGLE_OUTPUT]], **kwargs)
         # delta speed, target speed - raw output
-        self.speed_net(action, input, **kwargs)           
-        
+        self.speed_net(action, input, **kwargs)
+
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
         #print("reward: ", greedy_action)
@@ -208,7 +208,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             
             # drive backwards
             -0.5 * np.sign(pp_angle), # steer in direction opposite of puck direction
-            -10.0, # negative delta, ie reverse as fast as possible 
+            -10.0, # negative delta, ie reverse as fast as possible
             -target_speed, # negative target speed, ie reverse
 
         ])
@@ -232,10 +232,10 @@ class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
 
     def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
         # Steering action_net
-        # inputs: 
+        # inputs:
         #   player-puck distance
         #   puck-goal distance
-        #   player-puck angle 
+        #   player-puck angle
         #   puck-goal angle
         #   player velocity
         # outputs:
@@ -249,21 +249,21 @@ class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
 
         super().__init__(speed_net, steering_net, action_net, train=train, sample_type="normal")
         
-    def __call__(self, action, f, train=False, **kwargs):        
+    def __call__(self, action, f, train=False, **kwargs):
         output = self.action_net(f)
 
         if self.train is not None:
             train = self.train
-        if train:                      
-            output[0:3] = self.sample(output[0:3], output[3:6])            
-            
+        if train:
+            output[0:3] = self.sample(output[0:3], output[3:6])
+
         # the subnetworks are not trained
         
-        # steering direction - raw output        
+        # steering direction - raw output
         self.steering_net(action, output[[0]], **kwargs)
         # delta speed, target speed - raw output
-        self.speed_net(action, output[0:3], **kwargs)           
-        
+        self.speed_net(action, output[0:3], **kwargs)
+
         return output
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
@@ -274,9 +274,9 @@ class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
         return [(reward_goal_dist + reward_puck_dist) / 2] * 3
     
     def extract_greedy_action(self, action, f):        
-        # determine the steering direction and speed        
-        output = self.action_net(f)        
-        return output[0:3].detach().numpy()   
+        # determine the steering direction and speed
+        output = self.action_net(f)
+        return output[0:3].detach().numpy()
 
     def select_features(self, features, features_vec):
         pp_dist = features.select_player_puck_distance(features_vec)
@@ -284,7 +284,7 @@ class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
         pp_angle = features.select_player_puck_angle(features_vec)
         ppg_angle = features.select_player_puck_goal_angle(features_vec)
         speed = features.select_speed(features_vec)
-        
+
         return torch.Tensor([
             pp_dist,
             goal_dist,

@@ -112,12 +112,13 @@ class BooleanClassifier(LinearWithTanh):
 
 class Selection(BaseNetwork):
 
-    def __init__(self, classifiers, labels_index, n_features, selection_bias, **kwargs) -> None:
+    def __init__(self, classifiers, labels_index, n_features, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.classifiers = classifiers        
         self.index_start = labels_index
         self.n_features = n_features
-        self.selection_bias = torch.tensor(selection_bias)
+        self.classifiers = classifiers
+        for idx, classifier in enumerate(classifiers):
+            self.add_module("classifiers_{}".format(idx) , classifier)
 
     def parameters(self, recurse: bool = True):
         params = []
@@ -134,17 +135,17 @@ class Selection(BaseNetwork):
             index = torch.concat([index, classifier(input)], dim=1 if input.dim() > 1 else 0)            
         return index
 
-    def choose(self,x, y):
-        index = torch.argmax(x + self.selection_bias, dim=0).expand([1, y.shape[1]])   
+    def choose(self,x, y, bias):
+        index = torch.argmax(x + bias if bias is not None else x, dim=0).expand([1, y.shape[1]])
         
         # take the best choice between the given labels
         return torch.gather(y, dim=0, index=index).squeeze()
 
-    def forward(self, x):   
+    def forward(self, x, bias=None):
         output = self.get_index(x)          
         if not self.training:   
             y = self.get_labels(x)
-            output = self.choose(output, y)
+            output = self.choose(output, y, bias)
         return output
 class CategoricalSelection(LinearWithSoftmax):
     
