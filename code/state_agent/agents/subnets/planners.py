@@ -138,9 +138,9 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         super().__init__(Selection(
             list(map(lambda x: x.action_net, classifiers)),
             self.ranges[-1][1],
-            self.LABEL_FEATURES,
-            [0.0, 0.0, 0.25] # boost the 'reccovery' case otherwise it will generally be overshadowed because it is a rare event
+            self.LABEL_FEATURES
         ) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        self.selection_bias = torch.Tensor([0.0, 0.0, 0.05]) # boost the 'reccovery' case otherwise it will generally be overshadowed because it is a rare event
         self.classifiers = classifiers
         self.speed_net = speed_net
         self.steering_net = steering_net
@@ -150,12 +150,12 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
     def __call__(self, action, f, train=False, **kwargs):
         
-        call_output = outputs = self.action_net(f)
+        call_output = outputs = self.action_net(f, self.selection_bias if train == False else None)
         if train:                        
             call_output = torch.Tensor([c.sample(call_output[idx]) for idx, c in enumerate(self.classifiers)])
             # get labels
             y = self.action_net.get_labels(f)
-            outputs = self.action_net.choose(call_output, y)
+            outputs = self.action_net.choose(call_output, y, None) # bias is None for training
         
         # the subnetworks are not trained
         self.invoke_subnets(action, outputs, **kwargs)
@@ -164,11 +164,11 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         return call_output
 
     def invoke_subnets(self, action, input, **kwargs):
-        # steering direction - raw output        
+        # steering direction - raw output
         self.steering_net(action, input[[self.DELTA_STEERING_ANGLE_OUTPUT]], **kwargs)
         # delta speed, target speed - raw output
-        self.speed_net(action, input, **kwargs)           
-        
+        self.speed_net(action, input, **kwargs)
+
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
         #print("reward: ", greedy_action)
