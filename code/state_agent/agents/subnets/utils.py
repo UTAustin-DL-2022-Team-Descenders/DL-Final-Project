@@ -267,8 +267,7 @@ def load_model(f_path, file=__file__, model=None):
     except FileNotFoundError as e:
         return None
     except ValueError as e:
-        #print("Couldn't find existing model in %s" % load_path)
-        return None
+        raise e
 
 class DictObj:
     def __init__(self, in_dict:dict):
