@@ -3,6 +3,7 @@
 
 import torch
 from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
+from state_agent.agents.subnets.features import SoccerFeatures
 from state_agent.agents.subnets.action_nets import LinearWithTanh, LinearWithSigmoid
 from state_agent.agents.subnets.rewards import steering_angle_reward, speed_reward
 from state_agent.agents.subnets.utils import save_model, load_model
@@ -98,26 +99,25 @@ class BaseActor:
         # this is only called for top level actors; nested actors are given features directly from their ancestors
         pass
 
-    def save_model(self, custom_model_name=None, use_jit=True):
+    def save_model(self, custom_model_name=None, use_jit=False):
 
         # set the save name of the model. User may provide a custom model name or default to self.model_name
         save_model_name = custom_model_name if custom_model_name else self.model_name
 
         save_model(self.action_net, save_model_name, save_path=self.model_path, use_jit=use_jit)
 
-    def load_model(self, custom_model_name=None, use_jit=True):
+        return self.action_net
 
+    def load_model(self, custom_model_name=None, model=None, use_jit=False):
 
-        # Set model_class if we're not using JIT scripts
-        if not use_jit:
-            model_class = self.action_net.__class__
-        else:
-            model_class = None
+        model = model if model else self.action_net
 
         # set the load name of the model. User may provide a custom model name or default to self.model_name
         load_model_name = custom_model_name if custom_model_name else self.model_name
 
-        self.action_net = load_model(load_model_name, load_path=self.model_path, model_class=model_class)
+        self.action_net = load_model(load_model_name, load_path=self.model_path, model=model, use_jit=use_jit)
+
+        return self.action_net
 
 class SteeringActor(BaseActor):
 

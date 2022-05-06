@@ -148,6 +148,11 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         ) if action_net is None else action_net, train=train, sample_type="bernoulli")
         self.selection_bias = torch.Tensor([0.0, 0.0, 0.05]) # boost the 'reccovery' case otherwise it will generally be overshadowed because it is a rare event
         self.classifiers = classifiers
+
+        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "planner")
+
+        # Set model name for saving and loading action net
+        self.model_name = "planner_net"
         
     #def set_feature_offset(self, offset):
         # offset is the sum of:

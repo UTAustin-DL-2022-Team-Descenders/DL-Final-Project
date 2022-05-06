@@ -79,14 +79,14 @@ class BaseAgent:
 
     def save_models(self):
         for actor_i in range(len(self.actors)):
-            actor = self.actor[actor_i]
-            actor_model_save_name = f"{self.actor.model_name}_{actor_i}"
+            actor = self.actors[actor_i]
+            actor_model_save_name = f"{self.actors[actor_i].model_name}_{actor_i}"
             actor.save_model(actor_model_save_name)
 
     def load_models(self):
         for actor_i in range(len(self.actors)):
-            actor = self.actor[actor_i]
-            actor_model_load_name = f"{self.actor.model_name}_{actor_i}"
+            actor = self.actors[actor_i]
+            actor_model_load_name = f"{self.actors[actor_i].model_name}_{actor_i}"
             actor.load_model(actor_model_load_name)
 
 class Agent(BaseAgent):
