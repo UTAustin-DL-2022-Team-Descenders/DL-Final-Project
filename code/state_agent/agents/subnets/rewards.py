@@ -64,6 +64,23 @@ def continuous_causal_reward(current_, next_, threshold, max):
 
     return reward
 
+def continuous_causal_reward_ext(current_, next_, threshold, max):
+
+    reward = 0
+    if np.abs(next_) > threshold:
+        # is the shrinking?
+        if np.abs(next_) < np.abs(current_):
+            # less strong reward
+            reward = max - np.abs(next_)
+        else:
+            # no reward
+            reward = - (max - np.abs(next_))
+    else:
+        # strong reward
+        reward = max
+
+    return reward
+
 def steering_angle_reward(current_angle, next_angle):
 
     (c_delta) = current_angle
