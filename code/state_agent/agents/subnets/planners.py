@@ -3,13 +3,16 @@
 
 import torch
 import numpy as np
+import copy
 import os
 from torch.nn import functional as F
 
-from state_agent.agents.subnets.features import MIN_WALL_SPEED, NEAR_WALL_OFFSET, NEAR_WALL_STD, PUCK_RADIUS, SoccerFeatures
-from state_agent.agents.subnets.action_nets import BooleanClassifier, Selection
+from state_agent.agents.subnets.agents import Action
+
+from state_agent.agents.subnets.features import MIN_WALL_SPEED, NEAR_WALL_OFFSET, NEAR_WALL_STD, PUCK_RADIUS, MAX_SPEED, SoccerFeatures
+from state_agent.agents.subnets.action_nets import BooleanClassifier, LinearNetwork, Selection, LinearWithTanh
 from state_agent.agents.subnets.actors import BaseActor
-from state_agent.agents.subnets.rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, steering_angle_reward
+from state_agent.agents.subnets.rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, continuous_causal_reward_ext, steering_angle_reward
 
 class Classifier(BaseActor):
 
@@ -21,8 +24,8 @@ class Classifier(BaseActor):
             ) if action_net is None else action_net, train=train, sample_type="bernoulli")        
         self.feature_indicies = features
         
-    def select_features(self, features, features_vec):
-        return features.select_indicies(self.feature_indicies, features_vec)
+    def select_features(self, features):
+        return features.select_indicies(self.feature_indicies)
     
     def get_selected_features(self, selected_features_curr, selected_features_next):
         selected_features_next = selected_features_next[self.action_net.range[0]:self.action_net.range[1]] if selected_features_next else None
@@ -117,9 +120,11 @@ class PlayerPuckGoalPlannerActor(BaseActor):
     CLASSIFIER_PUCK_TO_GOAL = 1
     CLASSIFIER_STUCK_AGAINST_WALL = 2
 
-    acceleration = True
+    OUT_FEATURE_DELTA_ANGLE = 0,
+    OUT_FEATURE_DELTA_SPEED = 1,
+    OUT_FEATURE_TARGET_SPEED = 2,
 
-    def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
+    def __init__(self, action_net=None, train=None, **kwargs):
         
         classifiers = [
             HeadToPuckClassifier,
@@ -139,41 +144,42 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         super().__init__(Selection(
             list(map(lambda x: x.action_net, classifiers)),
             self.ranges[-1][1],
-            self.LABEL_FEATURES,
-            [0.0, 0.0, 0.25] # boost the 'reccovery' case otherwise it will generally be overshadowed because it is a rare event
+            self.LABEL_FEATURES
         ) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        self.selection_bias = torch.Tensor([0.0, 0.0, 0.05]) # boost the 'reccovery' case otherwise it will generally be overshadowed because it is a rare event
         self.classifiers = classifiers
-        self.speed_net = speed_net
-        self.steering_net = steering_net
-
-        # Set model path and name to save/load BaseActor's action_net
-        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "planner")
-        self.model_name = "planner_net"
         
+    #def set_feature_offset(self, offset):
+        # offset is the sum of:
+        # the final offset of all the classifier features (determined by the last range value)
+        # the sum of all label features (each classifier has LABEL_FEATURES labels)
+    #    self.action_net.range = (offset, offset + self.ranges[-1][1] + self.LABEL_FEATURES * len(self.ranges))
+
     def copy(self, action_net):
-        return self.__class__(self.speed_net, self.steering_net, action_net, train=self.train)
+        return self.__class__(action_net, train=self.train)
 
-    def __call__(self, action, f, train=False, **kwargs):
+    def __call__(self, action, f, extractor:SoccerFeatures=None, train=False, **kwargs):
         
-        call_output = outputs = self.action_net(f)
+        call_output = outputs = self.action_net(f, self.selection_bias if train == False else None)
         if train:                        
             call_output = torch.Tensor([c.sample(call_output[idx]) for idx, c in enumerate(self.classifiers)])
             # get labels
             y = self.action_net.get_labels(f)
-            outputs = self.action_net.choose(call_output, y)
+            outputs = self.action_net.choose(call_output, y, None) # bias is None for training
         
-        # the subnetworks are not trained
-        self.invoke_subnets(action, outputs, **kwargs)
+        # set the output features
+        extractor.set_features([
+            SoccerFeatures.STEERING_ANGLE,
+            SoccerFeatures.DELTA_SPEED,
+            SoccerFeatures.TARGET_SPEED
+        ], outputs)
+
+        extractor.set_features([
+            SoccerFeatures.PLANNER_CHOICE,
+        ], [self.action_net.last_choice])
 
         #print(action.acceleration, action.brake)        
         return call_output
-
-    def invoke_subnets(self, action, input, **kwargs):
-        # steering direction - raw output
-        self.steering_net(action, input[[self.DELTA_STEERING_ANGLE_OUTPUT]], **kwargs)
-        # delta speed, target speed - raw output
-        self.speed_net(action, input, **kwargs)
-
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
         #print("reward: ", greedy_action)
@@ -191,11 +197,12 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
         #return [c.extract_greedy_action(action, f) for c in self.classifiers]
                 
-    def select_features(self, features, features_vec):
-        pp_angle = features.select_player_puck_angle(features_vec)
-        counter_steer_angle = features.select_player_puck_countersteer_angle(features_vec)
-        delta_speed = features.select_delta_speed(features_vec)
-        target_speed = features.select_target_speed(features_vec)
+    def select_features(self, features):
+        pp_angle = features.select_player_puck_angle()
+        counter_steer_angle = features.select_player_puck_countersteer_angle()
+        speed = features.select_speed()
+        delta_speed = features.select_delta_speed()
+        target_speed = features.select_target_speed()
                 
         #print("Speed", speed)
 
@@ -213,15 +220,17 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             
             # drive backwards
             -0.5 * np.sign(pp_angle), # steer in direction opposite of puck direction
-            -10.0, # negative delta, ie reverse as fast as possible 
+            -target_speed - speed, # negative delta, ie reverse as fast as possible 
             -target_speed, # negative target speed, ie reverse
 
         ])
 
-        features = [classifier.select_features(features, features_vec) for classifier in self.classifiers]
+        features = [classifier.select_features(features) for classifier in self.classifiers]
         features.append(labels)
 
-        return torch.concat(features)
+        features = torch.concat(features)
+
+        return features
 
     def log_prob(self, *args, actions):
         input = args[0]
@@ -233,71 +242,154 @@ of a stochastic monte-carlo search for finding the best target angle and speed t
 
 In simpler terms, it will train by generating noise to offset the base planners output and learn what offsets to apply before passing outputs to subnetworks.
 """
-class PlayerPuckGoalFineTunedPlannerActor(PlayerPuckGoalPlannerActor):
+class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
 
-    def __init__(self, speed_net, steering_net, action_net=None, train=None, **kwargs):
+    FEATURES = [    
+        SoccerFeatures.PLAYER_PUCK_DISTANCE,            
+        SoccerFeatures.SPEED,        
+        SoccerFeatures.PREVIOUS_SPEED,
+        SoccerFeatures.PLAYER_PUCK_ANGLE,
+        SoccerFeatures.PUCK_GOAL_DISTANCE,
+        SoccerFeatures.PUCK_GOAL_ANGLE,
+        SoccerFeatures.PLANNER_CHOICE
+    ]
+
+    IN_FEATURE_SPEED = 1
+    IN_FEATURE_PLANNER_CHOICE = 6
+    IN_FEATURE_TARGET_SPEED = 7
+
+    PLANNER_FEATURE_INDEX = len(FEATURES)
+    FEATURE_INDEX = 5
+    INPUTS = len(FEATURES)
+    OUTPUTS = 2
+    HIDDEN = 20
+    
+    def __init__(self, action_net=None, train=None, mode=None, **kwargs):
         # Steering action_net
         # inputs:
-        #   player-puck distance
+        #   choice index (provided by planner.last_choice) 
         #   puck-goal distance
-        #   player-puck angle
         #   puck-goal angle
-        #   player velocity
+        #   [all of the inputs of the planner module]        
         # outputs:
+        #   delta steering angle
+        #   delta speed
+        #   target speed
+        
         #   delta steering angle (mean)
         #   delta speed (mean)
         #   target speed (mean)
         #   delta steering angle (std)
         #   delta speed (std)
         #   target speed (std)
-
-
-        super().__init__(speed_net, steering_net, action_net, train=train, sample_type="normal")
-
-    def __call__(self, action, f, train=False, **kwargs):
-        output = self.action_net(f)
-
+        #super().__init__(action_net if action_net else LinearForNormalAndStd(n_inputs=self.FEATURES, n_outputs=self.OUTPUTS, index_start=self.FEATURES, bias=True), 
+        #    train=train, sample_type="normal", **kwargs
+        #) 
+        self.stds = torch.Tensor([
+            0.0001,
+            0.0001,
+            0.0001
+        ])
+        super().__init__(
+            action_net if action_net else LinearNetwork(
+                None,
+                n_inputs=self.INPUTS, 
+                n_outputs=self.OUTPUTS, 
+                n_hidden=self.HIDDEN,
+                bias=True
+            ), 
+            train=train, sample_type="bernoulli", **kwargs
+        )     
+        self.mode = mode  
+        
+    def __call__(self, action, f, train=False, **kwargs):  
+        
         if self.train is not None:
             train = self.train
-        if train:
-            output[0:3] = self.sample(output[0:3], output[3:6])
 
-        # the subnetworks are not trained
+        offset = self.action_net(f)
+                
+        if train is not None:
+            offset = self.sample(offset)
 
-        # steering direction - raw output
-        self.steering_net(action, output[[0]], **kwargs)
-        # delta speed, target speed - raw output
-        self.speed_net(action, output[0:3], **kwargs)
+        if self.mode == "steering":
+            # only train the steering
+            output[1] = output[2] = 0
+        elif self.mode == "speed":
+            # only train the speed
+            offset[0] = 0
 
-        return output
+        # the network will output an offset of the current speed, target speed needs to be determined from this
+        offset = torch.tensor([
+            offset[0],            
+            offset[1],
+            0
+        ], device=offset.device)
 
+        # current speed
+        speed = self.get_input_feature(f, self.IN_FEATURE_SPEED)
+
+        # add offset from the fine-tuned net
+        output += offset
+        # adjust the target speed accordingly
+        output[PlayerPuckGoalPlannerActor.OUT_FEATURE_TARGET_SPEED] = offset[1] + speed
+
+        self.planner_net.invoke_subnets(action, output, **kwargs)
+        
+        return offset
+    
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
-        (c_pp_dist, c_goal_dist, *_) = selected_features_curr
-        (n_pp_dist, n_goal_dist, *_) = selected_features_next
-        reward_puck_dist = continuous_causal_reward(c_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, n_pp_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 1.0, MAX_SOCCER_DISTANCE_REWARD)
-        reward_goal_dist = continuous_causal_reward(c_goal_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, n_goal_dist / MAX_DISTANCE * MAX_SOCCER_DISTANCE_REWARD, 0.1, MAX_SOCCER_DISTANCE_REWARD)
-        return [(reward_goal_dist + reward_puck_dist) / 2] * 3
+        (c_pp_dist, c_speed, c_prev_speed, c_pp_angle, c_goal_dist, c_pg_angle, *_) = selected_features_curr
+        (n_pp_dist, n_speed, n_prev_speed, n_pp_angle, n_goal_dist, n_pg_angle, *_) = selected_features_next
 
-    def extract_greedy_action(self, action, f):
-        # determine the steering direction and speed
-        output = self.action_net(f)
-        return output[0:3].detach().numpy()
+        # get the planner choice
+        choice = greedy_action[0]
 
-    def select_features(self, features, features_vec):
-        pp_dist = features.select_player_puck_distance(features_vec)
-        goal_dist = features.select_puck_goal_distance(features_vec)
-        pp_angle = features.select_player_puck_angle(features_vec)
-        ppg_angle = features.select_player_puck_goal_angle(features_vec)
-        speed = features.select_speed(features_vec)
+        reward = 0
 
-        return torch.Tensor([
-            pp_dist,
-            goal_dist,
-            pp_angle,
-            ppg_angle,
-            speed
+        #print("choice", choice)
+
+        # reward the outcomes that minimizes the puck's distance to the goal
+        if choice == PlayerPuckGoalPlannerActor.CLASSIFIER_PUCK_TO_GOAL:               
+            reward = continuous_causal_reward_ext(c_goal_dist, n_goal_dist, 0.1, MAX_DISTANCE) / MAX_DISTANCE
+        
+        # reward the outcomes that minimizes both the player/puck to goal angle and distance to the puck       
+        elif choice == PlayerPuckGoalPlannerActor.CLASSIFIER_HEAD_TO_PUCK:
+            reward_dist = continuous_causal_reward_ext(c_pp_dist, n_pp_dist, 0.1, MAX_DISTANCE) / MAX_DISTANCE
+            reward_angle = continuous_causal_reward_ext(torch.abs(c_pp_angle - c_pg_angle), torch.abs(n_pp_angle - n_pg_angle), 0.1, MAX_STEERING_ANGLE_REWARD) / MAX_STEERING_ANGLE_REWARD
+
+            # weight the puck to goal higher
+            reward = 0
+            if self.mode == None or self.mode == "steering":
+                reward += reward_dist * 0.25
+            if self.mode == None or self.mode == "speed":
+                reward += reward_angle
+            reward /= 2
+            
+        elif choice == PlayerPuckGoalPlannerActor.CLASSIFIER_STUCK_AGAINST_WALL:
+            reward = continuous_causal_reward_ext(c_speed, n_speed, 0.1, MAX_SPEED) / MAX_SPEED if n_speed < 0 else -1
+
+        return [reward] * self.OUTPUTS
+    
+    def extract_greedy_action(self, action, f):        
+        # determine the steering direction and speed  
+        input = self.get_planner_features(f)
+        action_new = Action()
+        output = self.planner_net(action_new, input)
+        output = self.action_net(self.get_input_features(f, output)).detach().numpy()
+        return np.concatenate([
+            np.array([self.planner_net.action_net.last_choice]),            
+            output > 0, 
         ])
 
+    def select_features(self, features, features_vec):
+        return torch.concat([
+            features.select_indicies(self.FEATURES, features_vec),
+            self.planner_net.select_features(features, features_vec)
+        ])
+        
     def log_prob(self, output, actions):
-        retval = super().log_prob(output[:, 0:3], torch.abs(output[:, 3:6]), actions=actions)
+        # skip the first value of the actions (it contains the planner choice)
+        actions = actions[:,1:]
+        retval = super().log_prob(output, actions=actions)
         return retval

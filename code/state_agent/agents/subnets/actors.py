@@ -60,16 +60,15 @@ class BaseActor:
             return dist.log_prob(actions)
         elif self.sample_type == "one_hot_categorical":
             dist = OneHotCategorical(probs=input) if self.action_net.activation != None else OneHotCategorical(logits=input)
-
-            value = dist.log_prob(actions)
-            print("one hot probs", actions, value)
+            
+            value = dist.log_prob(actions)            
             return value
         raise Exception("Unknown sample type")
 
     def sample_bernoulli(self, output):
         if self.action_net.activation == "Tanh" or \
            self.action_net.activation == "Hardtanh":
-            output = (output + 1) / 2
+            output = (output + 1) / 2            
         if self.action_net.activation != None:
             output = Bernoulli(probs=output).sample()
         else:
@@ -153,8 +152,8 @@ class SteeringActor(BaseActor):
     def extract_greedy_action(self, action, *args, **kwargs):
         return [action.steer > 0]
 
-    def select_features(self, features, features_vec):
-        delta_steering_angle = features.select_player_puck_angle(features_vec)
+    def select_features(self, features):
+        delta_steering_angle = features.select_steering_angle()
         return torch.Tensor([
             delta_steering_angle
         ])
@@ -163,8 +162,8 @@ class DriftActor(BaseActor):
 
     def __init__(self, action_net=None, train=None, **kwargs):
         # Steering action_net
-        # inputs: delta steering angle, delta lateral distance
-        super().__init__(LinearWithSigmoid(2, 1) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        # inputs: delta steering angle
+        super().__init__(LinearWithTanh(2, 1, bias=True) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
         # Set model path to save/load DriftActor's action_net
         self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "drift")
@@ -177,27 +176,35 @@ class DriftActor(BaseActor):
         output = self.action_net(f)
         if self.train is not None:
             train = self.train
-        if train:
-            action.drift = self.sample(output) > 0.5
+        if train:            
+            action.drift = self.sample(output) > 0
         else:
             # drift is a binary value
-            action.drift = output[0] > 0.5
-
+            action.drift = output[0] > 0
+        
         return action
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
-        [current_angle] = selected_features_curr
-        [next_angle] = selected_features_next
-        return steering_angle_reward(current_angle, next_angle)
+        [current_angle, c_steer] = selected_features_curr
+        [next_angle, n_steer] = selected_features_next
+        reward = steering_angle_reward(current_angle, next_angle)
+        
+        # consider drifting only when steering angle is maxed and when the target angle is large
+        if torch.abs(c_steer) > 0.99 and torch.abs(next_angle) > 0.25:
+            return reward if action.drift == True else -1
+        else:
+            return reward if action.drift == False else -1 
 
     def extract_greedy_action(self, action, *args, **kwargs):
-        return [action.drift > 0.5]
+        return [action.drift > 0]
 
-    def select_features(self, features, features_vec):
-        delta_steering_angle = features.select_player_puck_angle(features_vec)
-        return torch.tensor([
-            delta_steering_angle
-        ])
+    def select_features(self, features):
+        return features.select_indicies(
+            [
+                SoccerFeatures.STEERING_ANGLE,
+                SoccerFeatures.PREVIOUS_STEER
+            ]
+        )
 
 class SpeedActor(BaseActor):
 
@@ -236,10 +243,10 @@ class SpeedActor(BaseActor):
 
         return action
 
-    def select_features(self, features, features_vec):
-        delta_steering_angle = features.select_player_puck_angle(features_vec)
-        delta_speed = features.select_delta_speed(features_vec)
-        target_speed = features.select_target_speed(features_vec)
+    def select_features(self, features):
+        delta_steering_angle = features.select_steering_angle()
+        delta_speed = features.select_delta_speed()
+        target_speed = features.select_target_speed()
         return torch.tensor([
             delta_steering_angle,
             delta_speed,

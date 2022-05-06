@@ -90,6 +90,7 @@ class SoccerFeatures(Features):
     PLAYER_PUCK_DISTANCE = 2
     PLAYER_WALL_DISTANCE = 3
     PUCK_GOAL_DISTANCE = 5    
+    PLANNER_CHOICE = 6
     PREVIOUS_SPEED = 29
     DELTA_SPEED_BEHIND = 30
     TARGET_SPEED_BEHIND = 31
@@ -97,6 +98,8 @@ class SoccerFeatures(Features):
     TARGET_SPEED = 33    
     DELTA_SPEED = 34
     PREVIOUS_ACCEL = 35
+    PREVIOUS_STEER = 36
+    PUCK_GOAL_ANGLE = 38
     PLAYER_GOAL_ANGLE = 39
     PLAYER_PUCK_COUNTER_STEER_ANGLE = 40        
     STEERING_ANGLE_BEHIND = 41
@@ -104,7 +107,7 @@ class SoccerFeatures(Features):
     STEERING_ANGLE = 43
     PLAYER_PUCK_GOAL_ANGLE = 44
     
-    def get_feature_vector(self, kart_info, soccer_state, absolute=False, target_speed=0.0, last_state=None, last_action=None, **kwargs):
+    def __init__(self, kart_info, soccer_state, absolute=False, target_speed=0.0, last_state=None, last_action=None, **kwargs):
 
         # cart location
         p = cart_location(kart_info)
@@ -149,57 +152,70 @@ class SoccerFeatures(Features):
         features[self.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
         features[self.SPEED] = speed
         features[self.PREVIOUS_ACCEL] = last_action.acceleration if last_action is not None else 0.0
+        features[self.PREVIOUS_STEER] = last_action.steer if last_action is not None else 0.0
         features[self.PREVIOUS_SPEED] = previous_speed
         features[self.TARGET_SPEED] = target_speed
         features[self.TARGET_SPEED_BEHIND] = speed_negative
         features[self.DELTA_SPEED] = target_speed - speed
         features[self.DELTA_SPEED_BEHIND] = speed_negative - speed
+        features[self.STEERING_ANGLE] = steer_puck_angle_diff # by default, steer towards the puck
         features[self.STEERING_ANGLE_BEHIND] = steer_angle_behind
         features[self.PLAYER_GOAL_ANGLE] = steer_angle_goal_diff
         features[self.PLAYER_PUCK_ANGLE] = steer_puck_angle_diff
         features[self.PLAYER_PUCK_GOAL_ANGLE] = 0 #steer_puck_goal_angle_diff
         features[self.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
-        
-        return features
+        features[self.PUCK_GOAL_ANGLE] = steer_angle_puck_goal
 
-    def select_indicies(self, indices, features):
-        return torch.Tensor(features[indices])
+        self.features = features
 
-    def select_player_puck_goal_angle(self, features):        
-        return features[self.PLAYER_PUCK_GOAL_ANGLE]
+    def set_features(self, indices, values):
+        for idx, f in zip(indices, values):
+            self.features[idx] = f.item()
 
-    def select_player_goal_angle(self, features):        
-        return features[self.PLAYER_GOAL_ANGLE]
+    def select_indicies(self, indices):
+        return torch.Tensor(self.features[indices])
 
-    def select_player_puck_angle(self, features):        
-        return features[self.PLAYER_PUCK_ANGLE]
+    def select_player_puck_goal_angle(self):
+        return self.features[self.PLAYER_PUCK_GOAL_ANGLE]
 
-    def select_behind_player_angle(self, features):        
-        return features[self.STEERING_ANGLE_BEHIND]
+    def select_player_goal_angle(self):
+        return self.features[self.PLAYER_GOAL_ANGLE]
 
-    def select_player_puck_countersteer_angle(self, features):
-        return features[self.PLAYER_PUCK_COUNTER_STEER_ANGLE]
+    def select_player_puck_angle(self):
+        return self.features[self.PLAYER_PUCK_ANGLE]
 
-    def select_lateral_distance(self, features):
+    def select_steering_angle(self):
+        return self.features[self.STEERING_ANGLE]
+
+    def select_puck_goal_angle(self):
+        return self.features[self.PUCK_GOAL_ANGLE]
+
+    def select_behind_player_angle(self):
+        return self.features[self.STEERING_ANGLE_BEHIND]
+
+    def select_player_puck_countersteer_angle(self):
+        return self.features[self.PLAYER_PUCK_COUNTER_STEER_ANGLE]
+
+    def select_lateral_distance(self):
         return 0
 
-    def select_speed(self, features):
-        return features[self.SPEED]
+    def select_speed(self):
+        return self.features[self.SPEED]
     
-    def select_speed_behind(self, features):
-        return features[self.TARGET_SPEED_BEHIND]
+    def select_speed_behind(self):
+        return self.features[self.TARGET_SPEED_BEHIND]
 
-    def select_delta_speed(self, features):
-        return features[self.DELTA_SPEED]
+    def select_delta_speed(self):
+        return self.features[self.DELTA_SPEED]
 
-    def select_delta_speed_behind(self, features):
-        return features[self.DELTA_SPEED_BEHIND]
+    def select_delta_speed_behind(self):
+        return self.features[self.DELTA_SPEED_BEHIND]
 
-    def select_target_speed(self, features):
-        return features[self.TARGET_SPEED]
+    def select_target_speed(self):
+        return self.features[self.TARGET_SPEED]
 
-    def select_player_puck_distance(self, features):
-        return features[self.PLAYER_PUCK_DISTANCE]
+    def select_player_puck_distance(self):
+        return self.features[self.PLAYER_PUCK_DISTANCE]
 
-    def select_puck_goal_distance(self, features):
-        return features[self.PUCK_GOAL_DISTANCE]
+    def select_puck_goal_distance(self):
+        return self.features[self.PUCK_GOAL_DISTANCE]

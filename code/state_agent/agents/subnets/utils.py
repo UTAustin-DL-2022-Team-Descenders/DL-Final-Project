@@ -140,7 +140,7 @@ class Rollout:
             data.append(agent_data)
         return data
 
-soccer_feature_extractor = SoccerFeatures()
+soccer_feature_extractor = SoccerFeatures
 
 def show_video_soccer(data, fps=30):
     import imageio
@@ -149,7 +149,7 @@ def show_video_soccer(data, fps=30):
     frames = [d['image'] for d in data]
     frames_map = [d['map'] for d in data]
     actions = [t['action'] for t in data]
-    features = [soccer_feature_extractor.get_feature_vector(**t) for t in data]
+    features = [soccer_feature_extractor(**t) for t in data]
     distances = [np.linalg.norm(get_puck_center(t['soccer_state']) - cart_location(t['kart_info'])) for t in data]
     speeds = [cart_speed(t['kart_info']) for t in data]
 
@@ -269,7 +269,7 @@ def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirna
     except FileNotFoundError as e:
         sys.exit(f"Problem loading model: {e.strerror}")
     except ValueError as e:
-        sys.exit(f"Problem loading model: {e}")
+        raise e
 
 class DictObj:
     def __init__(self, in_dict:dict):

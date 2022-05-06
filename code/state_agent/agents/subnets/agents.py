@@ -40,13 +40,13 @@ class BaseAgent:
         self.reset()
     
     def invoke_actor(self, actor, action, f):
-        actor(action, actor.select_features(self.extractor, f), train=self.train)
+        actor(action, torch.as_tensor(actor.select_features(f)).view(-1), train=self.train, extractor=f)
 
     def invoke_actors(self, action, f):
         [self.invoke_actor(actor, action, f) for actor in self.actors]
 
     def get_feature_vector(self, kart_info, soccer_state, **kwargs):        
-        return self.extractor.get_feature_vector(
+        return self.extractor(
             kart_info, 
             soccer_state, 
             target_speed=self.target_speed,            
@@ -62,7 +62,6 @@ class BaseAgent:
         action.acceleration = self.accel
 
         f = self.get_feature_vector(kart_info, soccer_state, last_state=self.last_state, last_action=self.last_output)
-        f = torch.as_tensor(f).view(-1)
 
         # save previous kart state
         self.last_state.append(copy.deepcopy(kart_info))
@@ -92,7 +91,7 @@ class BaseAgent:
 
 class Agent(BaseAgent):
     def __init__(self, *args, target_speed=MAX_SPEED, **kwargs):
-        super().__init__(*args, extractor=SoccerFeatures(), target_speed=target_speed, **kwargs)
+        super().__init__(*args, extractor=SoccerFeatures, target_speed=target_speed, **kwargs)
 
 class BaseTeam:
     agent_type = 'state'
