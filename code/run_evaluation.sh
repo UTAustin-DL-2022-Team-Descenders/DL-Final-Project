@@ -1,5 +1,3 @@
-export EVALUATION="True"
-
 n=$1 && shift
 
 if [[ -z $n ]]; then
@@ -36,5 +34,3 @@ do
     echo "$team1 (Team1) v $team2 (Team2): $output"
   done
 done
-
-unset EVALUATION
