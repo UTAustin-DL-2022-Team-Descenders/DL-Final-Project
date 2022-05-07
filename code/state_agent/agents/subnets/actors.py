@@ -115,18 +115,9 @@ class BaseActor:
         # set the load name of the model. User may provide a custom model name or default to self.model_name
         load_model_name = custom_model_name if custom_model_name else self.model_name
 
-        self.action_net = load_model(load_model_name, load_path=self.model_path, model=model, use_jit=use_jit, conversion=self.conversion)
+        self.action_net = load_model(load_model_name, load_path=self.model_path, model=model, use_jit=use_jit)
 
         return self.action_net
-    
-    def conversion(self, state):
-
-        # move net to linear.base.net
-        state['linear.base.net.0.weight'] = state['net.0.weight']
-        state['linear.base.net.2.weight'] = state['net.2.weight']
-        del state['net.0.weight']
-        del state['net.2.weight']
-        return state
 
 
 class SteeringActor(BaseActor):
@@ -173,7 +164,7 @@ class DriftActor(BaseActor):
     def __init__(self, action_net=None, train=None, **kwargs):
         # Steering action_net
         # inputs: delta steering angle
-        super().__init__(LinearWithTanh(2, 1, bias=True) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        super().__init__(LinearWithTanh(2, 1, n_hidden=20, bias=True, scale=None, range=None) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
         # Set model path to save/load DriftActor's action_net
         self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "drift")

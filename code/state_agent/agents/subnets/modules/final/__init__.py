@@ -10,23 +10,22 @@ class Team(BaseTeam):
     def __init__(self, num_of_players=2, train=False):
 
         self.steering_actor = SteeringActor()
-        self.steering_actor.load_model(use_jit=False)
+        self.steering_actor.load_model(use_jit=True)
 
         self.speed_actor = SpeedActor()
-        self.speed_actor.load_model(use_jit=False)
+        self.speed_actor.load_model(use_jit=True)
 
         self.drift_actor = DriftActor()
-        self.drift_actor.load_model(use_jit=False)
+        self.drift_actor.load_model(use_jit=True)
 
         # TODO: how are planners initiated now?
         self.planner_actor = PlayerPuckGoalPlannerActor()
-        self.planner_actor.load_model(use_jit=False)
+        self.planner_actor.load_model(use_jit=True)
 
         self.ft_planner_actor = PlayerPuckGoalFineTunedPlannerActor(mode="speed")
-        self.ft_planner_actor.load_model(use_jit=False)
+        self.ft_planner_actor.load_model(use_jit=True)
 
         # TODO: how is the Agent initiated now?
-        # agent = Agent(self.training_actor, train=train)
         agents = [
             Agent(
                 self.planner_actor,
@@ -38,7 +37,7 @@ class Team(BaseTeam):
             ),
             Agent(
                 self.planner_actor,
-                #self.ft_planner_actor,
+                # self.ft_planner_actor,
                 self.steering_actor,
                 self.speed_actor,
                 self.drift_actor,

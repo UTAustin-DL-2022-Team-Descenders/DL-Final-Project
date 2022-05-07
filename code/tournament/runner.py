@@ -67,7 +67,7 @@ class TeamRunner:
                 if assignment is None:
                     self._error = 'Failed to load submission.'
                 else:
-                    self._team = assignment.Team()
+                    self._team = assignment.Team()  # TODO Hart
             else:
                 self._team = team_or_dir
         except Exception as e:

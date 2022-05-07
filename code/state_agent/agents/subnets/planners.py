@@ -310,7 +310,9 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
                 n_inputs=self.INPUTS, 
                 n_outputs=self.OUTPUTS, 
                 n_hidden=self.HIDDEN,
-                bias=True
+                bias=True,
+                scale=None,
+                range=None
             ), 
             train=train, sample_type="bernoulli", **kwargs
         )     
