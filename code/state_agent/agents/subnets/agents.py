@@ -45,10 +45,11 @@ class BaseAgent:
     def invoke_actors(self, action, f):
         [self.invoke_actor(actor, action, f) for actor in self.actors]
 
-    def get_feature_vector(self, kart_info, soccer_state, **kwargs):        
+    def get_feature_vector(self, kart_info, soccer_state, team_num, **kwargs):
         return self.extractor(
             kart_info, 
-            soccer_state, 
+            soccer_state,
+            team_num,
             target_speed=self.target_speed,            
             **kwargs
         )
@@ -57,11 +58,11 @@ class BaseAgent:
         self.last_output = None
         self.last_state = []
 
-    def __call__(self, kart_info, soccer_state, **kwargs):
+    def __call__(self, kart_info, soccer_state, team_num, **kwargs):
         action = Action()
         action.acceleration = self.accel
 
-        f = self.get_feature_vector(kart_info, soccer_state, last_state=self.last_state, last_action=self.last_output)
+        f = self.get_feature_vector(kart_info, soccer_state, team_num, last_state=self.last_state, last_action=self.last_output)
 
         # save previous kart state
         self.last_state.append(copy.deepcopy(kart_info))
@@ -96,11 +97,11 @@ class Agent(BaseAgent):
 class BaseTeam:
     agent_type = 'state'
 
-    def __init__(self, agent: Agent):
+    def __init__(self, agents):
         self.team = None
         self.num_players = 0
         self.training_mode = None
-        self.agent = agent
+        self.agents = agents
 
     def set_training_mode(self, mode):
         """
@@ -126,7 +127,8 @@ class BaseTeam:
 
         self.team, self.num_players = team, num_players
         
-        self.agent.reset()
+        for agent in self.agents:
+            agent.reset()
         return ['tux'] * num_players
 
     def act(self, player_states, opponent_states, soccer_state):
@@ -167,7 +169,7 @@ class BaseTeam:
         for player_num, player_state in enumerate(player_states):
 
           # Get network output by forward feeding features through the model
-          output = self.agent(DictObj(player_state['kart']), DictObj(soccer_state))
+          output = self.agents[player_num](DictObj(player_state['kart']), DictObj(soccer_state), self.team)
 
           # add action dictionary to actions list
           actions.append(dict(vars(output)))

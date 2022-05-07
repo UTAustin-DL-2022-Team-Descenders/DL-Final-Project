@@ -64,12 +64,12 @@ def continuous_causal_reward(current_, next_, threshold, max):
 
     return reward
 
-def continuous_causal_reward_ext(current_, next_, threshold, max):
+def continuous_causal_reward_ext(current_, next_, threshold, threshold_shrink, max):
 
     reward = 0
     if np.abs(next_) > threshold:
         # is the shrinking?
-        if np.abs(next_) < np.abs(current_):
+        if np.abs(next_) + threshold_shrink < np.abs(current_):
             # less strong reward
             reward = max - np.abs(next_)
         else:
@@ -128,7 +128,7 @@ class TargetDistanceObjective(ObjectiveEvaluator):
     def calculate_state_score(self, t):
         ball = self.get_target(t)
         pos = cart_location(t['kart_info'])
-        distance = 1.0 - (np.abs(np.linalg.norm(pos - ball)) / self.max_distance)
+        distance = 1.0 - (np.linalg.norm(pos - ball) / self.max_distance)
         return distance
 
     def calculate_trajectory_score(self, trajectory):

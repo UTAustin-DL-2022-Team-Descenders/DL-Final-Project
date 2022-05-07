@@ -71,7 +71,7 @@ class Rollout:
         if self.mode == "track":
             agent_data = {'track_info': self.track_info, 'kart_info': kart_info}
         elif self.mode == "soccer":
-            agent_data = {'track_info': None, 'soccer_state': world_info.soccer, 'kart_info': kart_info}
+            agent_data = {'track_info': None, 'soccer_state': world_info.soccer, 'kart_info': kart_info, 'team_num': 0 }
 
         if self.render:
             agent_data['image'] = np.array(self.race.render_data[0].image)
@@ -221,15 +221,23 @@ def show_steering_graph(data):
     plt.plot(steer)
     plt.show()
 
-viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
-def run_soccer_agent(agent, rollout=viz_rollout_soccer, **kwargs):
+viz_rollout_soccer = None
+def run_soccer_agent(agent, rollout=None, **kwargs):
+    global viz_rollout_soccer
+    if not viz_rollout_soccer:
+        viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
+    if not rollout:
+        rollout = viz_rollout_soccer
     data = ray.get(rollout.__call__.remote(agent, **kwargs))
     show_video_soccer(data)
     show_graph(data)
     return data
 
-viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
+viz_rollouts = None
 def rollout_many(many_agents, **kwargs):
+    global viz_rollouts
+    if not viz_rollouts:
+        viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
     ray_data = []
     for i, agent in enumerate(many_agents):
          ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )
@@ -242,7 +250,7 @@ def dummy_agent(**kwargs):
 
 
 # StateAgent agnostic Save & Load model functions. Used in state_agent.py Match
-def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=False):
+def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=False, verbose=False):
     from os import path
     if use_jit:
         model.eval()
@@ -251,10 +259,11 @@ def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.pat
     else: # Otherwise use Pickle
         torch.save(model.state_dict(), path.join(save_path, f"{model_name}.th"))
 
-    print(f"Saved {model_name} to {save_path}")
+    if verbose:
+        print(f"Saved {model_name} to {save_path}")
 
 
-def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=False, model=None, conversion=None):
+def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=False, model=None, verbose=False, conversion=None):
 
     try:
         if use_jit:
@@ -266,7 +275,8 @@ def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirna
             model.load_state_dict(loaded)
             model.eval()
 
-        print("Loaded pre-existing network from", load_path)
+        if verbose:
+            print("Loaded pre-existing network from", load_path)
         return model
     except FileNotFoundError as e:
         sys.exit(f"Problem loading model: {e.strerror}")

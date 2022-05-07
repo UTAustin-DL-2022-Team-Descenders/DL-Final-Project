@@ -65,6 +65,8 @@ class Context():
         self.actions=None
         self.rewards=None
         self.trajectories=None
+        self.features=None
+        self.outputs=None
 
 def reinforce(
             actor, 
@@ -130,7 +132,7 @@ def reinforce_epoch(
     configuration=configuration,
     iterations=100,      
     batch_size=128,
-    reward_window=1,
+    reward_window=[1],
     normalize_returns=False,
     context=None  
 ):
@@ -142,7 +144,7 @@ def reinforce_epoch(
 
     optim = torch.optim.Adam(action_net.parameters(), lr=1e-3)
     
-    T = reward_window
+    T = reward_window if type(reward_window) == list else [reward_window]
     eps = 1e-2  
         
     # Roll out the policy, compute the Expectation
@@ -152,6 +154,7 @@ def reinforce_epoch(
 
     # Compute all the reqired quantities to update the policy
     features = []
+    outputs = []
     returns = []
     actions = []
     real_actions = []
@@ -194,16 +197,21 @@ def reinforce_epoch(
             action = real_actions[it + i]
             greedy_action = actor.extract_greedy_action(action, features_vec)
 
-            reward = actor.reward(
-                action,
-                greedy_action,
-                features[it + i],
-                features[it + min(i + T, len(trajectory)-1)]
-            )
+            rewards = []
+            for t in T:
+                rewards.append(
+                    actor.reward(
+                        action,
+                        greedy_action,
+                        features[it + i],
+                        features[it + min(i + t, len(trajectory)-1)],
+                        t
+                    )
+                )
             
             loss.append(0)
         
-            returns.append(reward) 
+            returns.append(np.mean(rewards, axis=0))
             
             # Store the action that we took
             actions.append( 
@@ -239,14 +247,17 @@ def reinforce_epoch(
         
         #actor.check_grad()
         optim.step()
-        avg_expected_log_return.append(float(expected_log_return))           
-        
+        avg_expected_log_return.append(float(expected_log_return))
+
+        outputs.extend(output.detach().tolist())
 
     action_net.eval()
 
     context = context if context else Context()
     context.actions=actions.detach().numpy()
     context.rewards=returns.detach().numpy()
+    context.features=features.detach().numpy()
+    context.outputs=outputs
     context.trajectories=trajectories
         
     return context 
