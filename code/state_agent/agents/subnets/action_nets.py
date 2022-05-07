@@ -3,6 +3,7 @@
 
 from typing import Tuple
 import torch
+import numpy as np
 
 def new_action_net(n_outputs=1, type="linear_tanh"):
     if type == "linear_sigmoid":
@@ -122,14 +123,20 @@ class BooleanClassifier(LinearWithTanh):
     def __init__(self, **kwargs) -> None:        
         super().__init__(n_outputs=1, **kwargs)        
 
-class Selection(BaseNetwork):
+class Selection(torch.nn.Module):
 
     def __init__(self, classifiers, labels_index, n_features, **kwargs) -> None:
-        super().__init__(None, (None,))
+        super().__init__()
         self.index_start = labels_index
         self.n_features = n_features
-        self.last_choice = None
+
+        # default last_choice to empty tensor
+        self.last_choice = torch.tensor([])
+        
         self.classifiers = classifiers
+        self.classifier0 = classifiers[0]
+        self.classifier1 = classifiers[1]
+        self.classifier2 = classifiers[2]
         for idx, classifier in enumerate(classifiers):
             self.add_module("classifiers_{}".format(idx) , classifier)
 
@@ -144,18 +151,25 @@ class Selection(BaseNetwork):
 
     def get_index(self, input):
         index = torch.tensor(data=[None]).to(device=input.device)
-        for classifier in self.classifiers:
-            index = torch.concat([index, classifier(input)], dim=1 if input.dim() > 1 else 0)            
+
+        # Unrolled classifiers loop to concatenate to index
+        index = torch.concat([index, self.classifier0(input)], dim=1 if input.dim() > 1 else 0)
+        index = torch.concat([index, self.classifier1(input)], dim=1 if input.dim() > 1 else 0)
+        index = torch.concat([index, self.classifier2(input)], dim=1 if input.dim() > 1 else 0)
+
         return index
 
     def choose(self,x, y, bias):
-        self.last_choice = torch.argmax(x + bias if bias is not None else x, dim=0)
+        # No longer using bias when computing last_choice
+        self.last_choice = torch.argmax(x, dim=0)
+
         index = self.last_choice.expand([1, y.shape[1]])
         
         # take the best choice between the given labels
         return torch.gather(y, dim=0, index=index).squeeze()
 
-    def forward(self, x, bias=None):
+    # bias defaults to an empty tensor
+    def forward(self, x, bias=torch.tensor([])):
         output = self.get_index(x)          
         if not self.training:   
             y = self.get_labels(x)

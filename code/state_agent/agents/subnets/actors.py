@@ -108,16 +108,26 @@ class BaseActor:
 
         return self.action_net
 
-    def load_model(self, custom_model_name=None, model=None, use_jit=False, conversion=None):
+    def load_model(self, custom_model_name=None, model=None, use_jit=False):
 
         model = model if model else self.action_net
 
         # set the load name of the model. User may provide a custom model name or default to self.model_name
         load_model_name = custom_model_name if custom_model_name else self.model_name
 
-        self.action_net = load_model(load_model_name, load_path=self.model_path, model=model, use_jit=use_jit, conversion=conversion)
+        self.action_net = load_model(load_model_name, load_path=self.model_path, model=model, use_jit=use_jit, conversion=self.conversion)
 
         return self.action_net
+    
+    def conversion(self, state):
+
+        # move net to linear.base.net
+        state['linear.base.net.0.weight'] = state['net.0.weight']
+        state['linear.base.net.2.weight'] = state['net.2.weight']
+        del state['net.0.weight']
+        del state['net.2.weight']
+        return state
+
 
 class SteeringActor(BaseActor):
 
