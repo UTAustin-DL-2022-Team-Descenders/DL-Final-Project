@@ -221,15 +221,21 @@ def show_steering_graph(data):
     plt.plot(steer)
     plt.show()
 
-def run_soccer_agent(agent, rollout=None, **kwargs):
-    if not rollout:
-        rollout = Rollout.remote(400, 300, mode="soccer")
-    data = ray.get(rollout.__call__.remote(agent, **kwargs))
+viz_rollout_soccer = None
+def run_soccer_agent(agent, **kwargs):
+    global viz_rollout_soccer
+    if not viz_rollout_soccer:
+        viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
+    data = ray.get(viz_rollout_soccer.__call__.remote(agent, **kwargs))
     show_video_soccer(data)
     show_graph(data)
     return data
 
+viz_rollouts = None
 def rollout_many(many_agents, **kwargs):
+    global viz_rollouts
+    if not viz_rollouts:
+        viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
     viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
     ray_data = []
     for i, agent in enumerate(many_agents):
