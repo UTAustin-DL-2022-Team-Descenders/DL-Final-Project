@@ -49,7 +49,7 @@ class HeadToPuckClassifier(Classifier):
         #   confidence score (0-1)
         super().__init__(self.FEATURES, range, n_hidden=1, bias=False, **kwargs)
              
-    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
 
         selected_features_curr, selected_features_next = self.get_selected_features(selected_features_curr, selected_features_next)
 
@@ -70,7 +70,7 @@ class PuckToGoalClassifier(Classifier):
         #   confidence score (0-1) 
         super().__init__(self.FEATURES, range, n_hidden=1, bias=False, **kwargs)
             
-    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
 
         selected_features_curr, selected_features_next = self.get_selected_features(selected_features_curr, selected_features_next)
         
@@ -96,7 +96,7 @@ class RecoverTowardsPuck(Classifier):
         #   confidence score (0-1) 
         super().__init__(self.FEATURES, range, n_hidden=5, bias=True, **kwargs)
             
-    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
 
         selected_features_curr, selected_features_next = self.get_selected_features(selected_features_curr, selected_features_next)
 
@@ -189,7 +189,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         #print(action.acceleration, action.brake)        
         return call_output
 
-    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
         #print("reward: ", greedy_action)
         rewards = [1.0 for idx, c in enumerate(self.classifiers)]
         return rewards
@@ -263,18 +263,19 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
         SoccerFeatures.PLAYER_PUCK_ANGLE,
         SoccerFeatures.PUCK_GOAL_DISTANCE,
         SoccerFeatures.PUCK_GOAL_ANGLE,
+        SoccerFeatures.PLAYER_PUCK_COUNTER_STEER_ANGLE,
         SoccerFeatures.PLANNER_CHOICE
     ]
 
     IN_FEATURE_SPEED = 1
-    IN_FEATURE_PLANNER_CHOICE = 7
+    IN_FEATURE_PLANNER_CHOICE = 8
     IN_FEATURE_TARGET_SPEED = 3
 
     OUT_FEATURE_SPEED_OFFSET = 1
 
     INPUTS = len(FEATURES)
     OUTPUTS = 2
-    HIDDEN = 30
+    HIDDEN = 40
     
     def __init__(self, action_net=None, train=None, mode=None, **kwargs):
         # Steering action_net
@@ -313,16 +314,22 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
             train=train, sample_type="bernoulli", **kwargs
         )     
         self.mode = mode  
+
+        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "ft_planner")
+
+        # Set model name for saving and loading action net
+        self.model_name = "ft_planner_net"
         
     def __call__(self, action, f, train=False, extractor:SoccerFeatures=None, **kwargs):
         
-        if self.train is not None:
+        if self.train:
             train = self.train
 
         offset = self.action_net(f)
                 
-        if train is not None:
-            offset = self.sample(offset)
+        if train:
+            offset = (self.sample(offset) * 2 - 1)
+            offset[1] *= MAX_SPEED / 4
 
         if self.mode == "steering":
             # only train the steering
@@ -330,8 +337,6 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
         elif self.mode == "speed":
             # only train the speed
             offset[0] = 0
-
-        # the network will output an offset to the target speed
 
         # target speed
         target_speed = extractor.select_target_speed()
@@ -352,41 +357,63 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
             extractor.set_features([
                 SoccerFeatures.DELTA_SPEED
             ], [
-                target_speed - speed
+                target_speed + offset[1] - speed
             ])
+
+        # print(offset, "speed", speed, "speed (ext)", extractor.select_speed(), "target speed", extractor.select_target_speed(), "delta speed", extractor.select_delta_speed())
         
         return offset
 
     def copy(self, action_net):
         return self.__class__(action_net, train=self.train, mode=self.mode)
     
-    def reward(self, action, greedy_action, selected_features_curr, selected_features_next):
-        (c_pp_dist, c_speed, c_prev_speed, c_target_speed, c_pp_angle, c_goal_dist, c_pg_angle, c_choice, *_) = selected_features_curr
-        (n_pp_dist, n_speed, n_prev_speed, n_target_speed, n_pp_angle, n_goal_dist, n_pg_angle, n_choice, *_) = selected_features_next
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
+        (c_pp_dist, c_speed, c_prev_speed, c_target_speed, c_pp_angle, c_goal_dist, c_pg_angle, c_counter, c_choice, *_) = selected_features_curr
+        (n_pp_dist, n_speed, n_prev_speed, n_target_speed, n_pp_angle, n_goal_dist, n_pg_angle, n_counter, n_choice, *_) = selected_features_next
 
         reward = 0
 
         #print("choice", choice)
 
         # reward the outcomes that minimizes the puck's distance to the goal
-        if c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_PUCK_TO_GOAL:
-            reward = continuous_causal_reward_ext(c_goal_dist, n_goal_dist, 0.1, MAX_DISTANCE) ** 2
-        
-        # reward the outcomes that minimizes both the player/puck to goal angle and distance to the puck       
-        elif c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_HEAD_TO_PUCK:
-            reward_dist = continuous_causal_reward_ext(c_pp_dist, n_pp_dist, 0.1, MAX_DISTANCE) ** 2
-            reward_angle = continuous_causal_reward_ext(torch.abs(c_pp_angle - c_pg_angle), torch.abs(n_pp_angle - n_pg_angle), 0.1, MAX_STEERING_ANGLE_REWARD) / MAX_STEERING_ANGLE_REWARD
 
-            # weight the puck to goal higher
+
+        if c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_PUCK_TO_GOAL or \
+           c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_HEAD_TO_PUCK:
+
+
+            # reward the outcomes that minimizes both the player/puck to goal angle and distance to the puck
+            reward_goal = continuous_causal_reward_ext(c_goal_dist, n_goal_dist, 0.1, 0.5, MAX_DISTANCE) / MAX_DISTANCE
+            reward_dist = continuous_causal_reward_ext(c_pp_dist, n_pp_dist, 0.1, 0.5, MAX_DISTANCE) / MAX_DISTANCE
+
+            # scale reward by time, asymmetrically (negative rewards get worse with more time, positive rewards get better with less time)
+
+            reward_goal = reward_goal * (time if reward_goal < 0 else 1/time)
+            reward_dist = reward_dist * (time if reward_dist < 0 else 1/time)
+
+            # magnify mistakes that move the puck away from the goal
+            #if reward_goal < 0:
+            #    reward_goal = - np.power(reward_goal, 2)
+            #if reward_dist < 0:
+            #    reward_dist = - np.power(reward_dist, 2)
+
             reward = 0
-            if self.mode == None or self.mode == "steering":
-                reward += reward_angle
-            if self.mode == None or self.mode == "speed":
-                reward += reward_dist * 0.25
-            
-        elif c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_STUCK_AGAINST_WALL:
+            reward += (reward_goal + reward_dist) / 2
+
+            # if your speed becomes zero because you got stuck... negative
+            if c_speed < 0.5 and n_speed < 0.5:
+                reward -= time
+            elif c_speed < 0.5 and np.abs(n_speed) > 1.0:
+                reward += time
+
+            # reward stablization of the puck steering near the goal
+            reward_angle = continuous_causal_reward_ext(np.abs(c_pg_angle - c_counter), np.abs(n_pg_angle - n_counter), 0.01, 0.0, MAX_STEERING_ANGLE_REWARD) / MAX_STEERING_ANGLE_REWARD
+
+            reward += reward_angle * (MAX_DISTANCE - c_pp_dist) * (time if reward_angle < 0 else 1/time)
+
+        if c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_STUCK_AGAINST_WALL:
             # maximize the approach towards the target speed
-            reward = continuous_causal_reward_ext(c_speed - c_target_speed, n_speed - n_target_speed, 0.1, MAX_SPEED) / MAX_SPEED
+            reward = continuous_causal_reward_ext(c_speed - c_target_speed, n_speed - n_target_speed, 0.1, 0.0, MAX_SPEED) / MAX_SPEED
 
         return [reward] * self.OUTPUTS
     

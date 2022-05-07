@@ -2,7 +2,7 @@
 # Creation Date: 4/23/2022
 
 from state_agent.agents.subnets.actors import SteeringActor, SpeedActor, DriftActor
-from state_agent.agents.subnets.planners import PlayerPuckGoalPlannerActor
+from state_agent.agents.subnets.planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
 from state_agent.agents.subnets.agents import BaseTeam, Agent
 
 class Team(BaseTeam):
@@ -22,27 +22,30 @@ class Team(BaseTeam):
         self.planner_actor = PlayerPuckGoalPlannerActor()
         self.planner_actor.load_model(use_jit=False)
 
+        self.ft_planner_actor = PlayerPuckGoalFineTunedPlannerActor(mode="speed")
+        self.ft_planner_actor.load_model(use_jit=False)
+
         # TODO: how is the Agent initiated now?
         # agent = Agent(self.training_actor, train=train)
-        agent = Agent(
-            self.planner_actor,
-            self.steering_actor,
-            self.speed_actor,
-            self.drift_actor,
-            target_speed=15.0
-        )
+        agents = [
+            Agent(
+                self.planner_actor,
+                self.ft_planner_actor,
+                self.steering_actor,
+                self.speed_actor,
+                self.drift_actor,
+                target_speed=21.0
+            ),
+            Agent(
+                self.planner_actor,
+                #self.ft_planner_actor,
+                self.steering_actor,
+                self.speed_actor,
+                self.drift_actor,
+                target_speed=12.0
+            )
+        ]
 
         super().__init__(
-            agent
+            agents
         )
-
-    def save(self):
-        self.agent.save_models()
-
-
-    def get_training_actor(self):
-        return self.training_actor
-
-    def set_training_mode(self, mode):
-        print("Training mode", mode)
-        self.agent.train = mode != None

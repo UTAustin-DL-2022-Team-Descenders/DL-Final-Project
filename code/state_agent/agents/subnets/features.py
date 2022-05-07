@@ -122,7 +122,7 @@ class SoccerFeatures(Features):
 
         # goal
         team_num = 1 - team_num
-        goal = get_team_goal_line_center(soccer_state, team_num) # team is hard-coded!!!!
+        goal = get_team_goal_line_center(soccer_state, team_num)
 
         # vectors
         vec_puck_p = p - puck
@@ -189,6 +189,7 @@ class SoccerFeatures(Features):
     def set_features(self, indices, values):
         for idx, f in zip(indices, values):
             self.features[idx] = f.item()
+            #print("update {} to {} = {}".format(idx, f.item(), self.features[idx]))
 
     def select_indicies(self, indices):
         return torch.Tensor(self.features[indices])

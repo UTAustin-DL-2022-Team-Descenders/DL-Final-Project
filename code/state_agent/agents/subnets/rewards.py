@@ -64,12 +64,12 @@ def continuous_causal_reward(current_, next_, threshold, max):
 
     return reward
 
-def continuous_causal_reward_ext(current_, next_, threshold, max):
+def continuous_causal_reward_ext(current_, next_, threshold, threshold_shrink, max):
 
     reward = 0
     if np.abs(next_) > threshold:
         # is the shrinking?
-        if np.abs(next_) < np.abs(current_):
+        if np.abs(next_) + threshold_shrink < np.abs(current_):
             # less strong reward
             reward = max - np.abs(next_)
         else:
