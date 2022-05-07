@@ -71,7 +71,7 @@ class Rollout:
         if self.mode == "track":
             agent_data = {'track_info': self.track_info, 'kart_info': kart_info}
         elif self.mode == "soccer":
-            agent_data = {'track_info': None, 'soccer_state': world_info.soccer, 'kart_info': kart_info}
+            agent_data = {'track_info': None, 'soccer_state': world_info.soccer, 'kart_info': kart_info, 'team_num': 0 }
 
         if self.render:
             agent_data['image'] = np.array(self.race.render_data[0].image)

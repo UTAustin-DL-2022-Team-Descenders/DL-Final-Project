@@ -305,11 +305,9 @@ if __name__ == '__main__':
 
         # Start the match
         match = Match(use_graphics=team1.agent_type == 'image' or team2.agent_type == 'image')
-        # initial_ball_location = ball_location.ball_velocity
-        initial_ball_location = np.random.randint(-45, 45, (2,))
         try:
             result = match.run(team1, team2, args.num_players, args.num_frames, max_score=args.max_score,
-                               initial_ball_location=initial_ball_location, initial_ball_velocity=args.ball_velocity,
+                               initial_ball_location=args.ball_location, initial_ball_velocity=args.ball_velocity,
                                record_fn=recorder)
         except MatchException as e:
             print('Match failed', e.score)
