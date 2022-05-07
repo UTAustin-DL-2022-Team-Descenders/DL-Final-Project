@@ -206,6 +206,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         #return [c.extract_greedy_action(action, f) for c in self.classifiers]
                 
     def select_features(self, features):
+        pp_attack_angle = features.select_player_puck_attack_angle()
         pp_angle = features.select_player_puck_angle()
         counter_steer_angle = features.select_player_puck_countersteer_angle()
         speed = features.select_speed()
@@ -214,10 +215,12 @@ class PlayerPuckGoalPlannerActor(BaseActor):
                 
         #print("Speed", speed)
 
+        # adjust the puck target angle to head towards the angle of incidence
+
         labels = torch.Tensor([
             
             #  go towards the puck 
-            pp_angle,
+            pp_attack_angle,
             delta_speed,
             target_speed,
 
