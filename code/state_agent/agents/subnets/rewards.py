@@ -128,7 +128,7 @@ class TargetDistanceObjective(ObjectiveEvaluator):
     def calculate_state_score(self, t):
         ball = self.get_target(t)
         pos = cart_location(t['kart_info'])
-        distance = 1.0 - (np.abs(np.linalg.norm(pos - ball)) / self.max_distance)
+        distance = 1.0 - (np.linalg.norm(pos - ball) / self.max_distance)
         return distance
 
     def calculate_trajectory_score(self, trajectory):
