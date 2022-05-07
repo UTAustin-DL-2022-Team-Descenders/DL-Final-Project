@@ -107,7 +107,7 @@ class SoccerFeatures(Features):
     STEERING_ANGLE = 43
     PLAYER_PUCK_GOAL_ANGLE = 44
     
-    def __init__(self, kart_info, soccer_state, absolute=False, target_speed=0.0, last_state=None, last_action=None, **kwargs):
+    def __init__(self, kart_info, soccer_state, team_num, absolute=False, target_speed=0.0, last_state=None, last_action=None, **kwargs):
 
         # cart location
         p = cart_location(kart_info)
@@ -119,7 +119,8 @@ class SoccerFeatures(Features):
         puck = get_puck_center(soccer_state)
 
         # goal
-        goal = get_team_goal_line_center(soccer_state, 1) # team is hard-coded!!!!
+        team_num = 1 - team_num
+        goal = get_team_goal_line_center(soccer_state, team_num) # team is hard-coded!!!!
 
         # steering angles
         steer_angle = get_obj1_to_obj2_angle(p, front)
