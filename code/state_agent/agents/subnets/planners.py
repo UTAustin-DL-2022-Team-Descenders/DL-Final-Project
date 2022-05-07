@@ -20,6 +20,7 @@ class Classifier(BaseActor):
         super().__init__(BooleanClassifier(
                 n_inputs=len(features),                                          
                 range=range,
+                scale=None,
                 **kwargs
             ) if action_net is None else action_net, train=train, sample_type="bernoulli")        
         self.feature_indicies = features

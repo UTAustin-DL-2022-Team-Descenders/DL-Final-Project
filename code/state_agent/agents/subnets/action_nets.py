@@ -84,16 +84,18 @@ class LinearWithTanh(torch.nn.Module):
 
     def __init__(self, n_inputs, n_outputs, n_hidden, bias, scale, range) -> None:
         super().__init__()
-        self.linear = LinearNetwork(torch.nn.Tanh, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, scale=scale, range=range)
+        self.activation = "Tanh"
+        self.linear = LinearNetwork(activation=torch.nn.Tanh, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, scale=scale, range=range)
 
     def forward(self, x):
         if self.training:
-            output = self.linear.forward(x)
+            output = self.linear(x)
             # the training output needs to be a probability
             output = (output + 1) / 2
             return output * self.linear.scale
         else:
-            return self.linear.forward(x)
+            output = self.linear(x)
+            return output
 
 class LinearWithSoftmax(LinearNetwork):
 
@@ -123,7 +125,7 @@ class BooleanClassifier(LinearWithTanh):
 class Selection(BaseNetwork):
 
     def __init__(self, classifiers, labels_index, n_features, **kwargs) -> None:
-        super().__init__(**kwargs)
+        super().__init__(None, (None,))
         self.index_start = labels_index
         self.n_features = n_features
         self.last_choice = None
@@ -141,8 +143,8 @@ class Selection(BaseNetwork):
         return x[self.index_start:].view(-1, self.n_features)
 
     def get_index(self, input):
-        index = torch.Tensor().to(device=input.device)
-        for idx, classifier in enumerate(self.classifiers):
+        index = torch.tensor(data=[None]).to(device=input.device)
+        for classifier in self.classifiers:
             index = torch.concat([index, classifier(input)], dim=1 if input.dim() > 1 else 0)            
         return index
 

@@ -218,7 +218,7 @@ class SpeedActor(BaseActor):
         # outputs:
         #   acceleration (0-1)
         #   brake (boolean)
-        super().__init__(LinearWithTanh(3, 2, bias=False) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)        
+        super().__init__(LinearWithTanh(3, 2,  n_hidden=20, bias=False, scale=None, range=None) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)
 
         # Set model path to save/load SpeedActor's action_net
         self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "speed")

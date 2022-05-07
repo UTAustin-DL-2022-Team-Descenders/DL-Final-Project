@@ -10,7 +10,7 @@ class Team(BaseTeam):
     def __init__(self, num_of_players=2, train=False):
 
         self.steering_actor = SteeringActor()
-        #self.steering_actor.load_model(use_jit=False)
+        self.steering_actor.load_model(use_jit=True)
 
         self.speed_actor = SpeedActor()
         #self.speed_actor.load_model(use_jit=False)
