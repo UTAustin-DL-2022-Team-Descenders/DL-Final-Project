@@ -3,16 +3,27 @@
 
 import torch
 from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
+from code.state_agent.agents.subnets.agents import Action
 from state_agent.agents.subnets.features import SoccerFeatures
 from state_agent.agents.subnets.action_nets import LinearWithTanh, LinearWithSigmoid
 from state_agent.agents.subnets.rewards import steering_angle_reward, speed_reward
 from state_agent.agents.subnets.utils import save_model, load_model
 import os
 
+class BaseActorNetwork(torch.nn.Module):
+
+    def __init__(self, action_net: torch.nn.Module) -> None:
+        super().__init__()
+        self.action_net = action_net
+
+    def select_features(self, features, features_vec):
+        # this is only called for top level actors; nested actors are given features directly from their ancestors
+        pass
+
 class BaseActor:
 
-    def __init__(self, action_net, train=None, reward_type=None, sample_type=None):
-        self.action_net = action_net.cpu().eval() if train != True else action_net
+    def __init__(self, actor_net: BaseActorNetwork, train=None, reward_type=None, sample_type=None):
+        self.actor_net = actor_net.cpu().eval() if train != True else actor_net
         self.train = train
         self.reward_type = reward_type
         self.sample_type = sample_type
@@ -25,7 +36,7 @@ class BaseActor:
         return self.__class__(action_net, train=self.train, reward_type=self.reward_type)
 
     def __call__(self, action, f, train=False, **kwargs):        
-        output = self.action_net(f)
+        output = self.actor_net(f)
         if self.train is not None:
             train = self.train
         #assert(self.action_net.training == train)            
@@ -94,10 +105,6 @@ class BaseActor:
             output = OneHotCategorical(logits=probs).sample()
         return output
 
-    def select_features(self, features, features_vec):
-
-        # this is only called for top level actors; nested actors are given features directly from their ancestors
-        pass
 
     def save_model(self, custom_model_name=None, use_jit=False):
 
@@ -119,13 +126,30 @@ class BaseActor:
 
         return self.action_net
 
+class SteeringNetwork(BaseActorNetwork):
+
+    def __init__(self):
+        # Steering action_net
+        # inputs: delta steering angle
+        super().__init__(LinearWithTanh(1, 1))
+
+    def forward(self, action: Action, f: torch.Tensor):
+        output = self.action_net(f)
+        action.steer = output[0]
+
+    def select_features(self, features: SoccerFeatures):
+        delta_steering_angle = features.select_steering_angle()
+        return torch.Tensor([
+            delta_steering_angle
+        ])
+
 class SteeringActor(BaseActor):
 
-    def __init__(self, action_net=None, train=None, **kwargs):
+    def __init__(self, actor_net=None, train=None, **kwargs):
 
         # Steering action_net
         # inputs: delta steering angle
-        super().__init__(LinearWithTanh(1, 1) if action_net is None else action_net, train=train, sample_type="bernoulli")
+        super().__init__(actor_net if actor_net else SteeringNetwork(), train=train, sample_type="bernoulli")
 
         # Set model path to save/load SteeringActor's action_net
         self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "steering")
@@ -135,13 +159,11 @@ class SteeringActor(BaseActor):
 
 
     def __call__(self, action, f, train=False, **kwargs):
-        output = self.action_net(f)
+        output = self.actor_net(action, f)
         if self.train is not None:
             train = self.train
         if train:
             action.steer = self.sample(output) * 2 - 1
-        else:
-            action.steer = output[0] # raw output
         return action
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
@@ -151,12 +173,6 @@ class SteeringActor(BaseActor):
 
     def extract_greedy_action(self, action, *args, **kwargs):
         return [action.steer > 0]
-
-    def select_features(self, features):
-        delta_steering_angle = features.select_steering_angle()
-        return torch.Tensor([
-            delta_steering_angle
-        ])
 
 class DriftActor(BaseActor):
 
