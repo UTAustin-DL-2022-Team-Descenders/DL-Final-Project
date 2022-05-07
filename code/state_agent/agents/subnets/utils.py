@@ -236,7 +236,6 @@ def rollout_many(many_agents, **kwargs):
     global viz_rollouts
     if not viz_rollouts:
         viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
-    viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
     ray_data = []
     for i, agent in enumerate(many_agents):
          ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )
