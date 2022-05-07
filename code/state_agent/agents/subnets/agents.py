@@ -45,10 +45,11 @@ class BaseAgent:
     def invoke_actors(self, action, f):
         [self.invoke_actor(actor, action, f) for actor in self.actors]
 
-    def get_feature_vector(self, kart_info, soccer_state, **kwargs):        
+    def get_feature_vector(self, kart_info, soccer_state, team_num, **kwargs):
         return self.extractor(
             kart_info, 
-            soccer_state, 
+            soccer_state,
+            team_num,
             target_speed=self.target_speed,            
             **kwargs
         )
@@ -57,11 +58,11 @@ class BaseAgent:
         self.last_output = None
         self.last_state = []
 
-    def __call__(self, kart_info, soccer_state, **kwargs):
+    def __call__(self, kart_info, soccer_state, team_num, **kwargs):
         action = Action()
         action.acceleration = self.accel
 
-        f = self.get_feature_vector(kart_info, soccer_state, last_state=self.last_state, last_action=self.last_output)
+        f = self.get_feature_vector(kart_info, soccer_state, team_num, last_state=self.last_state, last_action=self.last_output)
 
         # save previous kart state
         self.last_state.append(copy.deepcopy(kart_info))
@@ -167,7 +168,7 @@ class BaseTeam:
         for player_num, player_state in enumerate(player_states):
 
           # Get network output by forward feeding features through the model
-          output = self.agent(DictObj(player_state['kart']), DictObj(soccer_state))
+          output = self.agent(DictObj(player_state['kart']), DictObj(soccer_state), self.team)
 
           # add action dictionary to actions list
           actions.append(dict(vars(output)))

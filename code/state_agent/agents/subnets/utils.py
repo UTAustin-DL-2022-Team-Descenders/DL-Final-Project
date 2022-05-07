@@ -71,7 +71,7 @@ class Rollout:
         if self.mode == "track":
             agent_data = {'track_info': self.track_info, 'kart_info': kart_info}
         elif self.mode == "soccer":
-            agent_data = {'track_info': None, 'soccer_state': world_info.soccer, 'kart_info': kart_info}
+            agent_data = {'track_info': None, 'soccer_state': world_info.soccer, 'kart_info': kart_info, 'team_num': 0 }
 
         if self.render:
             agent_data['image'] = np.array(self.race.render_data[0].image)
@@ -221,15 +221,22 @@ def show_steering_graph(data):
     plt.plot(steer)
     plt.show()
 
-viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
-def run_soccer_agent(agent, rollout=viz_rollout_soccer, **kwargs):
-    data = ray.get(rollout.__call__.remote(agent, **kwargs))
+viz_rollout_soccer = None
+def run_soccer_agent(agent, **kwargs):
+    global viz_rollout_soccer
+    if not viz_rollout_soccer:
+        viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
+    data = ray.get(viz_rollout_soccer.__call__.remote(agent, **kwargs))
     show_video_soccer(data)
     show_graph(data)
     return data
 
-viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
+viz_rollouts = None
 def rollout_many(many_agents, **kwargs):
+    global viz_rollouts
+    if not viz_rollouts:
+        viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
+    viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
     ray_data = []
     for i, agent in enumerate(many_agents):
          ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )
