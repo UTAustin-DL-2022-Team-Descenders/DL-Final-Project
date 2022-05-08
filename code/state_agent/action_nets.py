@@ -113,9 +113,9 @@ class LinearForNormalAndStd(LinearNetwork):
 
         # force the std to be positive
         if x.dim() == 1:
-            return torch.concat([output[0:self.n_outputs//2], torch.abs(output[self.n_outputs//2:self.n_outputs])])
+            return torch.cat([output[0:self.n_outputs//2], torch.abs(output[self.n_outputs//2:self.n_outputs])])
         else:
-            return torch.concat([output[:, 0:self.n_outputs//2], torch.abs(output[:, self.n_outputs//2:self.n_outputs])], dim=1)
+            return torch.cat([output[:, 0:self.n_outputs//2], torch.abs(output[:, self.n_outputs//2:self.n_outputs])], dim=1)
 
 class BooleanClassifier(LinearWithTanh):
 
@@ -144,7 +144,7 @@ class Selection(torch.nn.Module):
         index: List[torch.Tensor] = []
         for classifier in self.classifiers:
             index.append(classifier(input))
-        return torch.concat(index, dim=1 if input.dim() > 1 else 0)
+        return torch.cat(index, dim=1 if input.dim() > 1 else 0)
 
     def choose(self,x, y, bias):
         self.last_choice = torch.argmax(x + bias if bias is not None else x, dim=0)

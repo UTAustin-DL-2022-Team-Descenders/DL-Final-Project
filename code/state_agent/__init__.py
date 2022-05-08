@@ -1,6 +1,9 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/23/2022
 
+import torch
+if "1.9" not in torch.__version__:
+    print("WARNING! Submission grader is using a different torch version than locally installed! Use 1.9.x")
 class Team():
     agent_type = 'state'
     def __init__(self, num_of_players=2, train=False):

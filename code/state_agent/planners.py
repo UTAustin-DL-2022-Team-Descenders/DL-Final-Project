@@ -240,13 +240,13 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         features = [classifier.select_features(features) for classifier in self.classifiers]
         features.append(labels)
 
-        features = torch.concat(features)
+        features = torch.cat(features)
 
         return features
 
     def log_prob(self, *args, actions):
         input = args[0]
-        return torch.concat([c.log_prob(input[:,idx], actions=actions[:,idx]).unsqueeze(1) for idx, c in enumerate(self.classifiers)], dim=1)
+        return torch.cat([c.log_prob(input[:,idx], actions=actions[:,idx]).unsqueeze(1) for idx, c in enumerate(self.classifiers)], dim=1)
 
 """
 The goal of the fine tuned planner is to use the outputs of the base planner categories as the 'mean'
