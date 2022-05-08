@@ -131,9 +131,6 @@ class ComposedAgentNetwork(torch.nn.Module):
             x = torch.as_tensor(self.drift_actor.select_features(f)).view(-1)
             self.drift_actor(action, x)
 
-        print("steering ", action.steer)
-        print("accel ", action.acceleration)
-
         return action
 
 class ComposedAgent(BaseAgent):
