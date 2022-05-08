@@ -42,7 +42,7 @@ def cart_location(kart_info):
 
 def cart_front(kart_info):
     # cart front location
-    return np.array(kart_info.front)[[0,2]].astype(np.float32)    
+    return np.array(kart_info.front)[[0,2]].astype(np.float32)
 
 def cart_direction(kart_info):
     p = cart_location(kart_info)
@@ -83,10 +83,85 @@ def get_team_goal_line(puck_state, team_id):
 def get_distance_cart_to_puck(kart_info, soccer_state):
     return np.linalg.norm(cart_location(kart_info) - get_puck_center(soccer_state))
 
-class Features():
-    pass
+def extract_all_features(self, kart_info, soccer_state, team_num, absolute=False, target_speed=0.0, last_state=None, last_action=None, **kwargs):
 
-class SoccerFeatures(Features):
+    # cart location
+    p = cart_location(kart_info)
+
+    # cart front
+    front = cart_front(kart_info)
+
+    # puck
+    puck = get_puck_center(soccer_state)
+
+    # goal
+    team_num = 1 - team_num
+    goal = get_team_goal_line_center(soccer_state, team_num)
+
+    # vectors
+    vec_puck_p = p - puck
+    vec_puck_p /= np.linalg.norm(vec_puck_p + 0.00001)
+    vec_puck_goal = puck - goal
+    vec_puck_goal /= np.linalg.norm(vec_puck_goal + 0.00001)
+
+    target_point = (PUCK_RADIUS_TIGHT * vec_puck_goal) + puck
+
+    # steering angles
+    steer_angle = get_obj1_to_obj2_angle(p, front)
+    steer_angle_behind = get_obj1_to_obj2_angle(p, front) + np.pi
+    steer_angle_puck = get_obj1_to_obj2_angle(front, puck)
+    steer_angle_goal = get_obj1_to_obj2_angle(p, goal)
+    steer_angle_puck_goal = get_obj1_to_obj2_angle(puck, goal)
+    steer_angle_goal_diff = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_goal)
+    steer_puck_angle_diff = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
+    steer_angle_puck_incidence = get_obj1_to_obj2_angle(p, target_point)
+    steer_angle_puck_incidence_diff = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck_incidence)
+    #steer_puck_goal_angle_diff = steer_angle_goal_diff - steer_puck_angle_diff
+
+    # counter steering up to 30 degrees (1/6 pi)
+    #steer_angle_puck_goal_counter_steer = -1 * np.sign(steer_puck_angle_diff) * (np.clip(steer_puck_goal_angle_diff, -0.15, 0.15)) + steer_puck_angle_diff
+    steer_angle_puck_goal_counter_steer = limit_period(steer_puck_angle_diff - np.clip(steer_angle_goal_diff, -PUCK_MAX_STEER_OFFSET, PUCK_MAX_STEER_OFFSET))
+    #get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)  #steer_puck_angle_diff #np.sign(steer_puck_angle_diff) * np.clip(np.abs(steer_puck_angle_diff), 0, 1.0/100.0)
+
+    # puck angle of incidence towards the goal
+    # is the puck currently between us and the goal
+    puck_facing_towards_goal = np.dot(vec_puck_p, vec_puck_goal.T) > 0
+
+    # distance
+    pp_dist = np.linalg.norm(p - puck) - PUCK_RADIUS
+
+    # speed
+    speed = cart_speed(kart_info)
+    speed_negative = -10
+    previous_speed = cart_speed(last_state[-1]) if last_state else MAX_SPEED
+
+    features = np.zeros(45).astype(np.float32)
+
+    features[0:2] = p - puck
+    features[SoccerFeatures.PLAYER_WALL_DISTANCE] = (np.linalg.norm(p) - NEAR_WALL_OFFSET) / (NEAR_WALL_STD)
+    features[SoccerFeatures.PLAYER_PUCK_DISTANCE] =  pp_dist
+    features[SoccerFeatures.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
+    features[SoccerFeatures.SPEED] = speed
+    features[SoccerFeatures.PREVIOUS_ACCEL] = last_action.acceleration if last_action is not None else 0.0
+    features[SoccerFeatures.PREVIOUS_STEER] = last_action.steer if last_action is not None else 0.0
+    features[SoccerFeatures.PREVIOUS_SPEED] = previous_speed
+    features[SoccerFeatures.TARGET_SPEED] = target_speed
+    features[SoccerFeatures.TARGET_SPEED_BEHIND] = speed_negative
+    features[SoccerFeatures.DELTA_SPEED] = target_speed - speed
+    features[SoccerFeatures.DELTA_SPEED_BEHIND] = speed_negative - speed
+    features[SoccerFeatures.STEERING_ANGLE] = steer_puck_angle_diff # by default, steer towards the puck
+    features[SoccerFeatures.STEERING_ANGLE_BEHIND] = steer_angle_behind
+    features[SoccerFeatures.PLAYER_PUCK_ATTACK_ANGLE] = steer_angle_puck_incidence_diff
+    features[SoccerFeatures.PLAYER_GOAL_ANGLE] = steer_angle_goal_diff
+    features[SoccerFeatures.PLAYER_PUCK_ANGLE] = steer_puck_angle_diff
+    features[SoccerFeatures.PLAYER_PUCK_GOAL_ANGLE] = 0 #steer_puck_goal_angle_diff
+    features[SoccerFeatures.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
+    features[SoccerFeatures.PUCK_GOAL_ANGLE] = steer_angle_puck_goal
+
+    return features
+
+@torch.jit.script
+class SoccerFeatures:
     
     PLAYER_PUCK_DISTANCE = 2
     PLAYER_WALL_DISTANCE = 3
@@ -109,80 +184,30 @@ class SoccerFeatures(Features):
     STEERING_ANGLE = 43
     PLAYER_PUCK_GOAL_ANGLE = 44
     
-    def __init__(self, kart_info, soccer_state, team_num, absolute=False, target_speed=0.0, last_state=None, last_action=None, **kwargs):
+    def __init__(self, features):
 
-        # cart location
-        p = cart_location(kart_info)
+        # Torch script doesn't class instances !!!!
+        self.PLAYER_PUCK_DISTANCE = 2
+        self.PLAYER_WALL_DISTANCE = 3
+        self.PUCK_GOAL_DISTANCE = 5
+        self.PLANNER_CHOICE = 6
+        self.PREVIOUS_SPEED = 29
+        self.DELTA_SPEED_BEHIND = 30
+        self.TARGET_SPEED_BEHIND = 31
+        self.SPEED = 32
+        self.TARGET_SPEED = 33
+        self.DELTA_SPEED = 34
+        self.PREVIOUS_ACCEL = 35
+        self.PREVIOUS_STEER = 36
+        self.PLAYER_PUCK_ATTACK_ANGLE = 37
+        self.PUCK_GOAL_ANGLE = 38
+        self.PLAYER_GOAL_ANGLE = 39
+        self.PLAYER_PUCK_COUNTER_STEER_ANGLE = 40
+        self.STEERING_ANGLE_BEHIND = 41
+        self.PLAYER_PUCK_ANGLE = 42
+        self.STEERING_ANGLE = 43
+        self.PLAYER_PUCK_GOAL_ANGLE = 44
 
-        # cart front
-        front = cart_front(kart_info)
-
-        # puck
-        puck = get_puck_center(soccer_state)
-
-        # goal
-        team_num = 1 - team_num
-        goal = get_team_goal_line_center(soccer_state, team_num)
-
-        # vectors
-        vec_puck_p = p - puck
-        vec_puck_p /= np.linalg.norm(vec_puck_p + 0.00001)
-        vec_puck_goal = puck - goal
-        vec_puck_goal /= np.linalg.norm(vec_puck_goal + 0.00001)
-
-        target_point = (PUCK_RADIUS_TIGHT * vec_puck_goal) + puck
-
-        # steering angles
-        steer_angle = get_obj1_to_obj2_angle(p, front)
-        steer_angle_behind = get_obj1_to_obj2_angle(p, front) + np.pi
-        steer_angle_puck = get_obj1_to_obj2_angle(front, puck)
-        steer_angle_goal = get_obj1_to_obj2_angle(p, goal)
-        steer_angle_puck_goal = get_obj1_to_obj2_angle(puck, goal)                
-        steer_angle_goal_diff = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_goal)
-        steer_puck_angle_diff = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)
-        steer_angle_puck_incidence = get_obj1_to_obj2_angle(p, target_point)
-        steer_angle_puck_incidence_diff = get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck_incidence)
-        #steer_puck_goal_angle_diff = steer_angle_goal_diff - steer_puck_angle_diff
-
-        # counter steering up to 30 degrees (1/6 pi)
-        #steer_angle_puck_goal_counter_steer = -1 * np.sign(steer_puck_angle_diff) * (np.clip(steer_puck_goal_angle_diff, -0.15, 0.15)) + steer_puck_angle_diff
-        steer_angle_puck_goal_counter_steer = limit_period(steer_puck_angle_diff - np.clip(steer_angle_goal_diff, -PUCK_MAX_STEER_OFFSET, PUCK_MAX_STEER_OFFSET))
-        #get_obj1_to_obj2_angle_difference(steer_angle, steer_angle_puck)  #steer_puck_angle_diff #np.sign(steer_puck_angle_diff) * np.clip(np.abs(steer_puck_angle_diff), 0, 1.0/100.0)
-        
-        # puck angle of incidence towards the goal
-        # is the puck currently between us and the goal
-        puck_facing_towards_goal = np.dot(vec_puck_p, vec_puck_goal.T) > 0
-
-        # distance 
-        pp_dist = np.linalg.norm(p - puck) - PUCK_RADIUS
-        
-        # speed
-        speed = cart_speed(kart_info)
-        speed_negative = -10
-        previous_speed = cart_speed(last_state[-1]) if last_state else MAX_SPEED
-
-        features = np.zeros(45).astype(np.float32)
-
-        features[0:2] = p - puck
-        features[self.PLAYER_WALL_DISTANCE] = (np.linalg.norm(p) - NEAR_WALL_OFFSET) / (NEAR_WALL_STD)
-        features[self.PLAYER_PUCK_DISTANCE] =  pp_dist
-        features[self.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
-        features[self.SPEED] = speed
-        features[self.PREVIOUS_ACCEL] = last_action.acceleration if last_action is not None else 0.0
-        features[self.PREVIOUS_STEER] = last_action.steer if last_action is not None else 0.0
-        features[self.PREVIOUS_SPEED] = previous_speed
-        features[self.TARGET_SPEED] = target_speed
-        features[self.TARGET_SPEED_BEHIND] = speed_negative
-        features[self.DELTA_SPEED] = target_speed - speed
-        features[self.DELTA_SPEED_BEHIND] = speed_negative - speed
-        features[self.STEERING_ANGLE] = steer_puck_angle_diff # by default, steer towards the puck
-        features[self.STEERING_ANGLE_BEHIND] = steer_angle_behind
-        features[self.PLAYER_PUCK_ATTACK_ANGLE] = steer_angle_puck_incidence_diff
-        features[self.PLAYER_GOAL_ANGLE] = steer_angle_goal_diff
-        features[self.PLAYER_PUCK_ANGLE] = steer_puck_angle_diff
-        features[self.PLAYER_PUCK_GOAL_ANGLE] = 0 #steer_puck_goal_angle_diff
-        features[self.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
-        features[self.PUCK_GOAL_ANGLE] = steer_angle_puck_goal
 
         self.features = features
 
@@ -192,7 +217,7 @@ class SoccerFeatures(Features):
             #print("update {} to {} = {}".format(idx, f.item(), self.features[idx]))
 
     def select_indicies(self, indices):
-        return torch.Tensor(self.features[indices])
+        return self.features[indices]
 
     def select_player_puck_goal_angle(self):
         return self.features[self.PLAYER_PUCK_GOAL_ANGLE]

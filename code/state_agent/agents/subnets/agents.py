@@ -9,23 +9,25 @@ from functools import reduce
 from state_agent.agents.subnets.features import SoccerFeatures, MAX_SPEED
 from state_agent.agents.subnets.utils import DictObj
 
+@torch.jit.script
 class Action:
 
     def __init__(self):
-        self.acceleration = torch.Tensor([0.0])
-        self.steer = torch.Tensor([0.0])
-        self.drift = torch.Tensor([False])
-        self.nitro = torch.Tensor([False])
-        self.brake = torch.Tensor([False])
-        self.fire = torch.Tensor([False])
+        self.acceleration = torch.tensor([0.0])
+        self.steer = torch.tensor([0.0])
+        self.drift = torch.tensor([False])
+        self.nitro = torch.tensor([False])
+        self.brake = torch.tensor([False])
+        self.fire = torch.tensor([False])
 
     def detach(self):
-        self.acceleration = float(self.acceleration.detach().numpy()) if hasattr(self.acceleration, "detach") else self.acceleration
-        self.steer = float(self.steer.detach().numpy()) if hasattr(self.steer, "detach") else self.steer
-        self.drift = bool(self.drift.detach().numpy()) if hasattr(self.drift, "detach") else self.drift
-        self.nitro = bool(self.nitro.detach().numpy()) if hasattr(self.nitro, "detach") else self.nitro
-        self.brake = bool(self.brake.detach().numpy()) if hasattr(self.brake, "detach") else self.brake
-        self.fire = bool(self.fire.detach().numpy()) if hasattr(self.fire, "detach") else self.fire
+        self.acceleration.detach()
+        self.steer.detach()
+        self.drift.detach()
+        self.nitro.detach()
+        self.brake.detach()
+        self.fire.detach()
+
 class BaseAgent:
 
     MAX_STATE = 5

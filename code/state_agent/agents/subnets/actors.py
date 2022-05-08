@@ -3,7 +3,7 @@
 
 import torch
 from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
-from code.state_agent.agents.subnets.agents import Action
+from state_agent.agents.subnets.agents import Action
 from state_agent.agents.subnets.features import SoccerFeatures
 from state_agent.agents.subnets.action_nets import LinearWithTanh, LinearWithSigmoid
 from state_agent.agents.subnets.rewards import steering_angle_reward, speed_reward
