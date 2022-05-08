@@ -20,6 +20,7 @@ def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirna
     try:
         if use_jit:
             model = torch.jit.load(os.path.join(load_path, f"{model_name}.pt"))
+            model.eval()
         else: # Otherwise use Pickle. Need to use model_class for this
             loaded = torch.load(os.path.join(load_path, f"{model_name}.th"))
             model.load_state_dict(loaded)

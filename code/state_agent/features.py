@@ -1,6 +1,7 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/19/2022
 
+from typing import List
 import numpy as np
 import torch
 
@@ -158,7 +159,7 @@ def extract_all_features(kart_info, soccer_state, team_num, absolute=False, targ
     features[SoccerFeatures.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
     features[SoccerFeatures.PUCK_GOAL_ANGLE] = steer_angle_puck_goal
 
-    return SoccerFeatures(features)
+    return SoccerFeatures(torch.as_tensor(features))
 
 @torch.jit.script
 class SoccerFeatures:
@@ -183,8 +184,8 @@ class SoccerFeatures:
     PLAYER_PUCK_ANGLE = 42
     STEERING_ANGLE = 43
     PLAYER_PUCK_GOAL_ANGLE = 44
-    
-    def __init__(self, features):
+
+    def __init__(self, features: torch.Tensor):
 
         # Torch script doesn't class instances !!!!
         self.PLAYER_PUCK_DISTANCE = 2
@@ -208,15 +209,14 @@ class SoccerFeatures:
         self.STEERING_ANGLE = 43
         self.PLAYER_PUCK_GOAL_ANGLE = 44
 
-
-        self.features = features
+        self.features: torch.Tensor = features
 
     def set_features(self, indices, values):
         for idx, f in zip(indices, values):
             self.features[idx] = f.item()
             #print("update {} to {} = {}".format(idx, f.item(), self.features[idx]))
 
-    def select_indicies(self, indices):
+    def select_indicies(self, indices: List[int]):
         return self.features[indices]
 
     def select_player_puck_goal_angle(self):

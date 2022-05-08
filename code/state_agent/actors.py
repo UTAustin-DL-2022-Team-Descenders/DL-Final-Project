@@ -38,6 +38,9 @@ class BaseActorNetwork(torch.nn.Module):
         # this is only called for top level actors; nested actors are given features directly from their ancestors
         pass
 
+    def forward(self, x):
+        pass
+
 class BaseActor:
 
     def __init__(self, actor_net: BaseActorNetwork, train=None, reward_type=None, sample_type=None):
@@ -164,9 +167,7 @@ class SteeringActorNetwork(BaseActorNetwork):
 
     def select_features(self, features: SoccerFeatures):
         delta_steering_angle = features.select_steering_angle()
-        return torch.Tensor([
-            delta_steering_angle
-        ])
+        return delta_steering_angle[None]
 
 class SteeringActor(BaseActor):
 
@@ -206,7 +207,7 @@ class DriftActorNetwork(BaseActorNetwork):
         # inputs: delta steering angle
         super().__init__(LinearWithTanh(2, 1, n_hidden=20, bias=True, scale=None, range=None))
 
-    def __call__(self, action: Action, f: torch.Tensor):
+    def forward(self, action: Action, f: torch.Tensor):
         output = self.action_net(f)
         # drift is a binary value
         action.drift = output[0] > 0
@@ -215,8 +216,8 @@ class DriftActorNetwork(BaseActorNetwork):
     def select_features(self, features: SoccerFeatures):
         return features.select_indicies(
             [
-                SoccerFeatures.STEERING_ANGLE,
-                SoccerFeatures.PREVIOUS_STEER
+                features.STEERING_ANGLE,
+                features.PREVIOUS_STEER
             ]
         )
 
@@ -268,7 +269,7 @@ class SpeedActorNetwork(BaseActorNetwork):
         #   brake (boolean)
         super().__init__(LinearWithTanh(3, 2,  n_hidden=20, bias=False, scale=None, range=None))
 
-    def __call__(self, action: Action, f: SoccerFeatures):
+    def forward(self, action: Action, f: torch.Tensor):
         output = self.action_net(f)
 
         # round output due to continuous gradient never being exactly zero
@@ -282,11 +283,11 @@ class SpeedActorNetwork(BaseActorNetwork):
         delta_steering_angle = features.select_steering_angle()
         delta_speed = features.select_delta_speed()
         target_speed = features.select_target_speed()
-        return torch.tensor([
-            delta_steering_angle,
-            delta_speed,
-            target_speed
-        ])
+        return torch.cat([
+            delta_steering_angle[None],
+            delta_speed[None],
+            target_speed[None]
+        ], dim=0)
 
 
 class SpeedActor(BaseActor):
