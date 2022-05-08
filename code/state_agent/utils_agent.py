@@ -8,9 +8,9 @@ import ray
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image, ImageFont, ImageDraw
-from .utils import map_image
-from .runner import to_native
-from .features import SoccerFeatures, cart_location, get_puck_center, cart_speed
+from state_agent.utils import map_image
+from state_agent.runner import to_native
+from state_agent.features import SoccerFeatures, cart_location, get_puck_center, cart_speed
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 font = ImageFont.load_default()

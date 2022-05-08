@@ -5,9 +5,10 @@ import copy
 import torch
 import numpy as np
 from torch.distributions import Bernoulli, Normal
-from state_agent.agents.subnets.rewards import SoccerBallDistanceObjective
-from state_agent.agents.subnets.utils import DictObj, rollout_many
-from state_agent.agents.subnets.agents import Agent
+from state_agent.rewards import SoccerBallDistanceObjective
+from state_agent.utils import rollout_many
+from state_agent.core_utils import DictObj
+from state_agent.agents import Agent
 
 def collect_dist(trajectories):
     results = []

@@ -4,8 +4,8 @@
 import torch
 import copy
 from functools import reduce
-from .features import SoccerFeatures, MAX_SPEED
-from .core_utils import DictObj
+from state_agent.features import SoccerFeatures, MAX_SPEED
+from state_agent.core_utils import DictObj
 
 class Action:
 

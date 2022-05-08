@@ -3,10 +3,10 @@
 
 import torch
 from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
-from .features import SoccerFeatures
-from .action_nets import LinearWithTanh, LinearWithSigmoid
-from .rewards import steering_angle_reward, speed_reward
-from .core_utils import save_model, load_model
+from state_agent.features import SoccerFeatures
+from state_agent.action_nets import LinearWithTanh, LinearWithSigmoid
+from state_agent.rewards import steering_angle_reward, speed_reward
+from state_agent.core_utils import save_model, load_model
 import os
 
 class BaseActor:

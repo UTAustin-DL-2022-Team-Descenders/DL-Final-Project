@@ -2,7 +2,7 @@
 # Creation Date: 4/19/2022
 
 import numpy as np
-from .features import cart_location, get_puck_center, MAX_SPEED
+from state_agent.features import cart_location, get_puck_center, MAX_SPEED
 
 MAX_STEERING_ANGLE_REWARD = np.pi
 MAX_SPEED_REWARD = 3.0
