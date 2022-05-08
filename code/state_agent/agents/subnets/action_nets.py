@@ -32,25 +32,6 @@ class BaseNetwork(torch.nn.Module):
     def forward(self, x):
         return self.net(self.get_input(x))
 
-
-class BaseNetwork2(torch.nn.Module):
-
-    def __init__(self, range=None) -> None:
-        super().__init__()
-        self.range = range
-
-    def get_input(self, x):
-        if self.range:
-            if x.dim() == 1:
-                x = x[self.range[0]:self.range[1]]
-            else:
-                x = x[:, self.range[0]:self.range[1]]
-        return x
-
-    def forward(self, x):
-        return self.net(self.get_input(x))
-
-
 class SingleLinearNetwork(BaseNetwork):
 
     def __init__(self, n_inputs, n_outputs, bias) -> None:
@@ -67,7 +48,6 @@ class SingleLinearNetwork(BaseNetwork):
         self.net = torch.nn.Sequential(
             *layers
         )
-
 
 class LinearNetwork(torch.nn.Module):
 
@@ -140,48 +120,6 @@ class BooleanClassifier(LinearWithTanh):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(n_outputs=1, **kwargs)
-
-
-class Selection2(BaseNetwork):
-
-    def __init__(self, classifiers, labels_index, n_features,
-                 **kwargs) -> None:
-        super().__init__(**kwargs)
-        self.index_start = labels_index
-        self.n_features = n_features
-        self.last_choice = None
-        self.classifiers = classifiers
-        for idx, classifier in enumerate(classifiers):
-            self.add_module("classifiers_{}".format(idx), classifier)
-
-    def parameters(self, recurse: bool = True):
-        params = []
-        for c in self.classifiers:
-            params.extend(c.parameters(recurse=recurse))
-        return params
-
-    def get_labels(self, x):
-        return x[self.index_start:].view(-1, self.n_features)
-
-    def get_index(self, input):
-        index = torch.Tensor().to(device=input.device)
-        for idx, classifier in enumerate(self.classifiers):
-            index = torch.concat([index, classifier(input)], dim=1 if input.dim() > 1 else 0)
-        return index
-
-    def choose(self, x, y, bias):
-        self.last_choice = torch.argmax(x + bias if bias is not None else x, dim=0)
-        index = self.last_choice.expand([1, y.shape[1]])
-
-        # take the best choice between the given labels
-        return torch.gather(y, dim=0, index=index).squeeze()
-
-    def forward(self, x, bias=None):
-        output = self.get_index(x)
-        if not self.training:
-            y = self.get_labels(x)
-            output = self.choose(output, y, bias)
-        return output
 
 class Selection(torch.nn.Module):
 
