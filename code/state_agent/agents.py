@@ -1,13 +1,11 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/23/2022
 
-from argparse import Namespace
-from typing import Union
 import torch
 import copy
 from functools import reduce
-from state_agent.agents.subnets.features import SoccerFeatures, MAX_SPEED
-from state_agent.agents.subnets.utils import DictObj
+from state_agent.features import SoccerFeatures, MAX_SPEED
+from state_agent.core_utils import DictObj
 
 @torch.jit.script
 class Action:

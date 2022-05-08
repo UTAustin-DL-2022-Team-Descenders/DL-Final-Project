@@ -1,6 +1,7 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/19/2022
 
+from typing import List, Tuple
 import torch
 
 def new_action_net(n_outputs=1, type="linear_tanh"):
@@ -10,120 +11,125 @@ def new_action_net(n_outputs=1, type="linear_tanh"):
         return LinearWithTanh(n_outputs)
     else:
         raise Exception("Unknown action net")
-        
+
+
 class BaseNetwork(torch.nn.Module):
 
-    def __init__(self, range=None) -> None:
-        super().__init__()       
-        self.range = range 
+    def __init__(self, net, range: Tuple) -> None:
+        super().__init__()
+        self.range = range
+        self.net = net
 
-    def get_input(self, x):
-        if self.range:
-            if x.dim() == 1:                
+    def get_input(self, x) -> torch.Tensor:
+        if self.range is not None:
+            if x.dim() == 1:
                 x = x[self.range[0]:self.range[1]]
             else:
-                x = x[:,self.range[0]:self.range[1]]
+                x = x[:, self.range[0]:self.range[1]]
         return x
-           
-    def forward(self, x, train=None):
+
+    def forward(self, x):
         return self.net(self.get_input(x))
 
-    
 class SingleLinearNetwork(BaseNetwork):
-    
+
     def __init__(self, n_inputs, n_outputs, bias) -> None:
-        super().__init__()
+        layers = [
+            # torch.nn.BatchNorm1d(3*5*3),
+            torch.nn.Linear(n_inputs, n_outputs, bias=bias),
+            torch.nn.ReLU()
+        ]
+
+        super().__init__(
+            torch.nn.Sequential(
+                *layers
+            ),
+            ()
+        )
+
         self.n_outputs = n_outputs
         self.activation = None
 
-        layers = [
-            #torch.nn.BatchNorm1d(3*5*3),
-            torch.nn.Linear(n_inputs, n_outputs, bias=bias),
-            torch.nn.ReLU()            
-        ]
-        
-        self.net = torch.nn.Sequential(
-            *layers
-        )
+class LinearNetwork(torch.nn.Module):
 
-class LinearNetwork(BaseNetwork):
-    
-    def __init__(self, activation, n_inputs, n_outputs, n_hidden, bias, scale=[1.0], **kwargs) -> None:
-        super().__init__(**kwargs)
+    def __init__(self, activation, n_inputs, n_outputs, n_hidden, bias, scale, range) -> None:
+        super().__init__()
         self.n_outputs = n_outputs
-        self.scale = torch.Tensor(scale)
+        self.scale = torch.Tensor(scale if scale else [1.0])
         self.activation = activation.__name__ if activation else None
 
         layers = [
-            #torch.nn.BatchNorm1d(3*5*3),
+            # torch.nn.BatchNorm1d(3*5*3),
             torch.nn.Linear(n_inputs, n_hidden, bias=bias),
             torch.nn.Tanh(),
-            torch.nn.Linear(n_hidden, n_outputs, bias=bias)            
+            torch.nn.Linear(n_hidden, n_outputs, bias=bias)
         ]
         if activation:
             layers.append(activation())
 
-        self.net = torch.nn.Sequential(
+        net = torch.nn.Sequential(
             *layers
         )
+        self.base = BaseNetwork(net, range)  # TODO Hart change back
 
     def forward(self, x):
-        return super().forward(x) * self.scale
+        return self.base.forward(x) * self.scale
 
 class LinearWithSigmoid(LinearNetwork):
 
     def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, hard=False, **kwargs) -> None:
         super().__init__(torch.nn.Sigmoid if not hard else torch.nn.Hardsigmoid, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, **kwargs)
-    
-class LinearWithTanh(LinearNetwork):
 
-    def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, **kwargs) -> None:        
-        super().__init__(torch.nn.Tanh, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, **kwargs)
+class LinearWithTanh(torch.nn.Module):
+
+    def __init__(self, n_inputs, n_outputs, n_hidden, bias, scale, range) -> None:
+        super().__init__()
+        self.activation = "Tanh"
+        self.linear = LinearNetwork(activation=torch.nn.Tanh, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, scale=scale, range=range)
 
     def forward(self, x):
         if self.training:
-            output = super().forward(x)
+            output = self.linear(x)
             # the training output needs to be a probability
             output = (output + 1) / 2
-            return output * self.scale
+            return output * self.linear.scale
         else:
-            return super().forward(x)
+            output = self.linear(x)
+            return output
 
 class LinearWithSoftmax(LinearNetwork):
 
-    def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, **kwargs) -> None:        
+    def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, **kwargs) -> None:
         super().__init__(torch.nn.Softmax, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, **kwargs)
-    
+
 class LinearForNormalAndStd(LinearNetwork):
 
-    def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, **kwargs) -> None:        
-        # need double the number of outputs for mean and std        
+    def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, **kwargs) -> None:
+        # need double the number of outputs for mean and std
         super().__init__(torch.nn.Tanh, n_inputs=n_inputs, n_outputs=n_outputs*2, n_hidden=n_hidden, bias=bias, **kwargs)
 
     def forward(self, x):
         output = super().forward(x)
 
         # force the std to be positive
-        if x.dim() == 1:            
-            return torch.concat([output[0:self.n_outputs//2], torch.abs(output[self.n_outputs//2:self.n_outputs])])
+        if x.dim() == 1:
+            return torch.cat([output[0:self.n_outputs//2], torch.abs(output[self.n_outputs//2:self.n_outputs])])
         else:
-            return torch.concat([output[:, 0:self.n_outputs//2], torch.abs(output[:, self.n_outputs//2:self.n_outputs])], dim=1)
+            return torch.cat([output[:, 0:self.n_outputs//2], torch.abs(output[:, self.n_outputs//2:self.n_outputs])], dim=1)
 
 class BooleanClassifier(LinearWithTanh):
 
-    def __init__(self, **kwargs) -> None:        
-        super().__init__(n_outputs=1, **kwargs)        
+    def __init__(self, n_inputs, n_hidden, bias, scale, range) -> None:
+        super().__init__(n_inputs=n_inputs, n_outputs=1, n_hidden=n_hidden, bias=bias, scale=scale, range=range)
 
-class Selection(BaseNetwork):
+class Selection(torch.nn.Module):
 
-    def __init__(self, classifiers, labels_index, n_features, **kwargs) -> None:
-        super().__init__(**kwargs)
+    def __init__(self, classifiers: List[BooleanClassifier], labels_index, n_features) -> None:
+        super().__init__()
         self.index_start = labels_index
         self.n_features = n_features
-        self.last_choice = None
-        self.classifiers = classifiers
-        for idx, classifier in enumerate(classifiers):
-            self.add_module("classifiers_{}".format(idx) , classifier)
+        self.last_choice = torch.tensor([])
+        self.classifiers = torch.nn.ModuleList(classifiers)
 
     def parameters(self, recurse: bool = True):
         params = []
@@ -135,40 +141,41 @@ class Selection(BaseNetwork):
         return x[self.index_start:].view(-1, self.n_features)
 
     def get_index(self, input):
-        index = torch.Tensor().to(device=input.device)
-        for idx, classifier in enumerate(self.classifiers):
-            index = torch.concat([index, classifier(input)], dim=1 if input.dim() > 1 else 0)            
-        return index
+        index: List[torch.Tensor] = []
+        for classifier in self.classifiers:
+            index.append(classifier(input))
+        return torch.cat(index, dim=1 if input.dim() > 1 else 0)
 
     def choose(self,x, y, bias):
         self.last_choice = torch.argmax(x + bias if bias is not None else x, dim=0)
         index = self.last_choice.expand([1, y.shape[1]])
-        
+
         # take the best choice between the given labels
         return torch.gather(y, dim=0, index=index).squeeze()
 
-    def forward(self, x, bias=None):
-        output = self.get_index(x)          
-        if not self.training:   
+    # bias defaults to an empty tensor
+    def forward(self, x, bias):
+        output = self.get_index(x)
+        if not self.training:
             y = self.get_labels(x)
             output = self.choose(output, y, bias)
         return output
+
+
 class CategoricalSelection(LinearWithSoftmax):
-    
-    def __init__(self, n_features, **kwargs) -> None:        
-        # need double the number of outputs for mean and std  
+
+    def __init__(self, n_features, **kwargs) -> None:
+        # need double the number of outputs for mean and std
         super().__init__(**kwargs)
         self.n_features = n_features
         self.last_choice = None
 
-
-    def forward(self, x):                
-
+    def forward(self, x):
         output = super().forward(x)
-                
+
         if not self.training:
-            output = self.choose(output, x)                            
-        
+            output = self.choose(output, x)
+
         # if training, the choice index probabilities must be made available for sampling
         return output
 
@@ -176,11 +183,11 @@ class CategoricalSelection(LinearWithSoftmax):
         return x[self.index_start:].view(-1, self.n_features)
 
     def get_index(self, input):
-        return torch.argmax(input, dim=0)        
+        return torch.argmax(input, dim=0)
 
     def choose(self, index, x):
         y = self.get_labels(x)
-    
+
         self.last_choice = self.get_index(index)
         index = self.last_choice.expand([1, y.shape[1]])
 
