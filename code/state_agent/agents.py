@@ -32,8 +32,6 @@ class BaseAgent:
         self.actors = args
         self.train = train
         self.extractor = extractor
-        self.accel = kwargs['accel'] if 'accel' in kwargs else 1.0
-        self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.actors, False)
         self.target_speed = target_speed
         self.reset()
     
@@ -58,7 +56,6 @@ class BaseAgent:
 
     def __call__(self, kart_info, soccer_state, team_num, **kwargs):
         action = Action()
-        action.acceleration = self.accel
 
         f = self.get_feature_vector(kart_info, soccer_state, team_num, last_state=self.last_state, last_action=self.last_output)
 
@@ -68,8 +65,6 @@ class BaseAgent:
             self.last_state.pop(0)
 
         self.invoke_actors(action, f)         
-        if self.use_accel:
-            action.acceleration = self.accel
 
         action.detach()
         self.last_output=action
@@ -89,8 +84,31 @@ class BaseAgent:
             actor.load_model(actor_model_load_name)
 
 class Agent(BaseAgent):
+
+    """
+    Evaluation agent for submission. No post-processing, only hyperparameters are provided.
+    """
+
     def __init__(self, *args, target_speed=MAX_SPEED, **kwargs):
         super().__init__(*args, extractor=SoccerFeatures, target_speed=target_speed, **kwargs)
+
+class TrainingAgent(BaseAgent):
+
+    """
+    Training agent post-processes the output. This is not used during the grading submission!
+    """
+
+    def __init__(self, *args, extractor=None, train=False, target_speed=None, **kwargs):
+        super().__init__(*args, extractor=extractor, train=train, target_speed=target_speed, **kwargs)
+
+        self.accel = kwargs['accel'] if 'accel' in kwargs else 1.0
+        self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.actors, False)
+
+    def invoke_actors(self, action, f):
+        super().invoke_actors(action, f)
+        if self.use_accel:
+            action.acceleration = self.accel
+
 
 class BaseTeam:
     agent_type = 'state'
