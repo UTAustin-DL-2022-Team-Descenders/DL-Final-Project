@@ -1,7 +1,9 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/23/2022
 
+from typing import List
 import torch
+
 if "1.9" not in torch.__version__:
     print("WARNING! Submission grader is using a different torch version than locally installed! Use 1.9.x")
 
@@ -10,28 +12,24 @@ class Team():
     def __init__(self, num_of_players=2, train=False):
         from .actors import SteeringActor, SpeedActor, DriftActor
         from .planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
-        from .agents import BaseTeam, Agent
+        from .agents import BaseTeam, Agent, BaseAgent
 
         # From BaseTeam
         self.team = None
         self.num_players = 0
         self.training_mode = None
+        self.agents: List[BaseAgent] = []
+
+    def set_training_mode(self, mode):
+        self.training_mode = mode
+
+    def new_match(self, team: int, num_players: int) -> list:
+        self.team, self.num_players = team, num_players
+
         use_jit = True
 
-        #self.steering_actor = SteeringActor()
-        #self.steering_actor.load_model(use_jit=True)
-
-        #self.speed_actor = SpeedActor()
-        #self.speed_actor.load_model(use_jit=True)
-
-        #self.drift_actor = DriftActor()
-        #self.drift_actor.load_model(use_jit=True)
-
-        #self.planner_actor = PlayerPuckGoalPlannerActor()
-        #self.planner_actor.load_model(use_jit=True)
-
-        #self.ft_planner_actor = PlayerPuckGoalFineTunedPlannerActor(mode="speed")
-        #self.ft_planner_actor.load_model(use_jit=True)
+        for agent in self.agents:
+            agent.reset()
 
         if use_jit:
             self.agents = [
@@ -43,32 +41,8 @@ class Team():
                 )
             ]
         else:
-            self.agents = [
-                Agent(
-                    # =self.planner_actor,
-                    # self.ft_planner_actor,
-                    self.steering_actor,
-                    self.speed_actor,
-                    self.drift_actor,
-                    target_speed=12.0
-                ),
-                Agent(
-                    # =self.planner_actor,
-                    # self.ft_planner_actor,
-                    self.steering_actor,
-                    self.speed_actor,
-                    self.drift_actor,
-                    target_speed=12.0
-                )
-            ]
+            self.create_discrete_networks()
 
-    def set_training_mode(self, mode):
-        self.training_mode = mode
-
-    def new_match(self, team: int, num_players: int) -> list:
-        self.team, self.num_players = team, num_players
-        for agent in self.agents:
-            agent.reset()
         return ['tux'] * num_players
 
     def act(self, player_states, opponent_states, soccer_state):
@@ -99,6 +73,13 @@ class Team():
 
         self.drift_actor = DriftActor()
         self.drift_actor.load_model(use_jit=True)
+
+        #self.planner_actor = PlayerPuckGoalPlannerActor()
+        #self.planner_actor.load_model(use_jit=True)
+
+        #self.ft_planner_actor = PlayerPuckGoalFineTunedPlannerActor(mode="speed")
+        #self.ft_planner_actor.load_model(use_jit=True)
+
 
         self.agents = [
             Agent(
