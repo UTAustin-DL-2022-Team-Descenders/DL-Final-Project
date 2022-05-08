@@ -11,10 +11,11 @@ The agent extracts different features from the current and past states of the
 environment and feeds each set of features to the respective actor 
 (`SteeringActor|steer_net.pt`, `DriftActor|drift_net.pt`, and 
 `SpeedActor|speed_net.pt`), who then calculate the particular actions given 
-the features. The Planner (`planner_net.pt`) then calculates how much influence 
-each sub-actor should have on the action given the states available. These 
-actions are then fed to the Fine Tuned Planner (`ft_palnner_net.pt`) which 
-filters the actions to better act in the environment.
+the features. The Planner (`planner_net.pt`) then identifies the best policy 
+action to take given a small set of pre-trained scenarios (e.g., head to the puck,
+move the puck to the goal, back up if stuck against a wall). The actions are 
+then fed to the Fine Tuned Planner (`ft_palnner_net.pt`) which filters the 
+actions to better act in the environment.
 
 ## Description of Files
 
