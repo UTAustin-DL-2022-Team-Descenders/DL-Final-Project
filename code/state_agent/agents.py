@@ -5,7 +5,7 @@ import torch
 import copy
 from functools import reduce
 from .features import SoccerFeatures, MAX_SPEED
-from .utils_agent import DictObj
+from .core_utils import DictObj
 
 class Action:
 

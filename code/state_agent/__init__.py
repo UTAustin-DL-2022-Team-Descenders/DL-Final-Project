@@ -59,7 +59,7 @@ class Team():
         return ['tux'] * num_players
 
     def act(self, player_states, opponent_states, soccer_state):
-        from .utils_agent import DictObj
+        from .core_utils import DictObj
         # actions list for all players on this team
         actions = []
 

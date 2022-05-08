@@ -6,7 +6,7 @@ from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorica
 from .features import SoccerFeatures
 from .action_nets import LinearWithTanh, LinearWithSigmoid
 from .rewards import steering_angle_reward, speed_reward
-from .utils_agent import save_model, load_model
+from .core_utils import save_model, load_model
 import os
 
 class BaseActor:
