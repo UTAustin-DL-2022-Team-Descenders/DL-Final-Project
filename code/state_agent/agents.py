@@ -1,30 +1,13 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/23/2022
 
+from typing import List
 import torch
 import copy
 from functools import reduce
-from state_agent.features import SoccerFeatures, MAX_SPEED
+from state_agent.actors import BaseActorNetwork, Action
+from state_agent.features import SoccerFeatures, MAX_SPEED, extract_all_features
 from state_agent.core_utils import DictObj
-
-@torch.jit.script
-class Action:
-
-    def __init__(self):
-        self.acceleration = torch.tensor([0.0])
-        self.steer = torch.tensor([0.0])
-        self.drift = torch.tensor([False])
-        self.nitro = torch.tensor([False])
-        self.brake = torch.tensor([False])
-        self.fire = torch.tensor([False])
-
-    def detach(self):
-        self.acceleration.detach()
-        self.steer.detach()
-        self.drift.detach()
-        self.nitro.detach()
-        self.brake.detach()
-        self.fire.detach()
 
 class BaseAgent:
 
@@ -34,8 +17,6 @@ class BaseAgent:
         self.actors = args
         self.train = train
         self.extractor = extractor
-        self.accel = kwargs['accel'] if 'accel' in kwargs else 1.0
-        self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.actors, False)
         self.target_speed = target_speed
         self.reset()
     
@@ -60,7 +41,6 @@ class BaseAgent:
 
     def __call__(self, kart_info, soccer_state, team_num, **kwargs):
         action = Action()
-        action.acceleration = self.accel
 
         f = self.get_feature_vector(kart_info, soccer_state, team_num, last_state=self.last_state, last_action=self.last_output)
 
@@ -70,8 +50,6 @@ class BaseAgent:
             self.last_state.pop(0)
 
         self.invoke_actors(action, f)         
-        if self.use_accel:
-            action.acceleration = self.accel
 
         action.detach()
         self.last_output=action
@@ -90,9 +68,55 @@ class BaseAgent:
             actor_model_load_name = f"{self.actors[actor_i].model_name}_{actor_i}"
             actor.load_model(actor_model_load_name)
 
+# NOTE: This Agent is used for training purposes. It has some utilities for post processing the acceleration for example.
+# It is not used for the final evaluations.
 class Agent(BaseAgent):
     def __init__(self, *args, target_speed=MAX_SPEED, **kwargs):
-        super().__init__(*args, extractor=SoccerFeatures, target_speed=target_speed, **kwargs)
+        super().__init__(*args, extractor=extract_all_features, target_speed=target_speed, **kwargs)
+
+        self.accel = kwargs['accel'] if 'accel' in kwargs else 1.0
+        self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.actors, False)
+
+
+    def invoke_actors(self, action, f):
+        super().invoke_actors(action, f)
+
+        # NOTE: this is only called for TRAINING agents, the Evaluation agent will not post-process!
+        if self.use_accel:
+            action.acceleration = self.accel
+
+
+class CompositedAgentNetwork(torch.nn.Module):
+
+    """
+    The composited agent network is a torch module that runs a sequence of BaseActorNetworks
+    """
+
+    def __init__(self, actor_nets: List[BaseActorNetwork]) -> None:
+        super().__init__()
+        self.actor_nets = actor_nets
+
+    def forward(self, action: Action, f: SoccerFeatures):
+        for actor_net in self.actor_nets:
+            x = torch.as_tensor(actor_net.select_features(f)).view(-1)
+            actor_net(action, x)
+
+class CompositedAgent(BaseAgent):
+
+    """
+    # NOTE: The composited agent is agent used for evaluations and loads a single agent network of actors networks, for the purpose
+    #  of executing them all as one torch module
+    """
+
+    def __init__(self, agent_net: CompositedAgentNetwork, model_name:str, target_speed=MAX_SPEED, **kwargs):  # type: ignore
+        super().__init__([agent_net], extractor=extract_all_features, target_speed=target_speed, **kwargs)
+        self.model_name = model_name
+
+    def save_models(self):
+        self.actors[0].save_model(self.model_name)
+
+    def load_models(self):
+        self.actors[0].load_model(self.model_name)
 
 class BaseTeam:
     agent_type = 'state'

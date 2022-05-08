@@ -25,25 +25,23 @@ class Team():
         self.drift_actor = DriftActor()
         self.drift_actor.load_model(use_jit=True)
 
-        # TODO: how are planners initiated now?
-        self.planner_actor = PlayerPuckGoalPlannerActor()
-        self.planner_actor.load_model(use_jit=True)
+        #self.planner_actor = PlayerPuckGoalPlannerActor()
+        #self.planner_actor.load_model(use_jit=True)
 
-        self.ft_planner_actor = PlayerPuckGoalFineTunedPlannerActor(mode="speed")
-        self.ft_planner_actor.load_model(use_jit=True)
+        #self.ft_planner_actor = PlayerPuckGoalFineTunedPlannerActor(mode="speed")
+        #self.ft_planner_actor.load_model(use_jit=True)
 
-        # TODO: how is the Agent initiated now?
         self.agents = [
             Agent(
-                self.planner_actor,
-                self.ft_planner_actor,
+                #self.planner_actor,
+                #self.ft_planner_actor,
                 self.steering_actor,
                 self.speed_actor,
                 self.drift_actor,
                 target_speed=21.0
             ),
             Agent(
-                self.planner_actor,
+                # =self.planner_actor,
                 # self.ft_planner_actor,
                 self.steering_actor,
                 self.speed_actor,

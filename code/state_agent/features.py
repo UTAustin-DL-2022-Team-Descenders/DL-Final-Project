@@ -83,7 +83,7 @@ def get_team_goal_line(puck_state, team_id):
 def get_distance_cart_to_puck(kart_info, soccer_state):
     return np.linalg.norm(cart_location(kart_info) - get_puck_center(soccer_state))
 
-def extract_all_features(self, kart_info, soccer_state, team_num, absolute=False, target_speed=0.0, last_state=None, last_action=None, **kwargs):
+def extract_all_features(kart_info, soccer_state, team_num, absolute=False, target_speed=0.0, last_state=None, last_action=None, **kwargs):
 
     # cart location
     p = cart_location(kart_info)
@@ -158,7 +158,7 @@ def extract_all_features(self, kart_info, soccer_state, team_num, absolute=False
     features[SoccerFeatures.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
     features[SoccerFeatures.PUCK_GOAL_ANGLE] = steer_angle_puck_goal
 
-    return features
+    return SoccerFeatures(features)
 
 @torch.jit.script
 class SoccerFeatures:
