@@ -2,6 +2,7 @@
 # Creation Date: 4/23/2022
 
 import torch
+#import numpy as np
 if "1.9" not in torch.__version__:
     print("WARNING! Submission grader is using a different torch version than locally installed! Use 1.9.x")
 class Team():
@@ -9,7 +10,6 @@ class Team():
     def __init__(self, num_of_players=2, train=False):
         from .actors import SteeringActor, SpeedActor, DriftActor
         from .planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
-        from .agents import BaseTeam, Agent
 
         # From BaseTeam
         self.team = None
@@ -32,7 +32,24 @@ class Team():
         self.ft_planner_actor = PlayerPuckGoalFineTunedPlannerActor(mode="speed")
         self.ft_planner_actor.load_model(use_jit=True)
 
+
+
+    def set_training_mode(self, mode):
+        self.training_mode = mode
+
+    def new_match(self, team: int, num_players: int) -> list:
+
+        from .agents import BaseTeam, Agent
+
+        carts = ['adiumy', 'amanda', 'beastie', 'emule', 'gavroche', 'gnu', 'hexley',
+                 'kiki', 'konqi', 'nolok', 'pidgin', 'puffy', 'sara_the_racer', 'sara_the_wizard', 'suzanne', 'tux',
+                 'wilber', 'xue']
+
+        self.team, self.num_players = team, num_players
+
         # TODO: how is the Agent initiated now?
+
+        #speeds = [np.random.uniform(17.0, 23.0), np.random.uniform(12.0, 16.0)]
         self.agents = [
             Agent(
                 self.planner_actor,
@@ -40,26 +57,31 @@ class Team():
                 self.steering_actor,
                 self.speed_actor,
                 self.drift_actor,
-                target_speed=21.0
+                target_speed=19.0 #speeds[0]
             ),
             Agent(
                 self.planner_actor,
-                # self.ft_planner_actor,
+                self.ft_planner_actor,
                 self.steering_actor,
                 self.speed_actor,
                 self.drift_actor,
-                target_speed=12.0
+                target_speed=15.5 #speeds[1]
             )
         ]
 
-    def set_training_mode(self, mode):
-        self.training_mode = mode
-
-    def new_match(self, team: int, num_players: int) -> list:
-        self.team, self.num_players = team, num_players
         for agent in self.agents:
             agent.reset()
-        return ['tux'] * num_players
+
+        #indx = np.random.uniform(low=0, high=len(carts), size=[2]).astype(np.int8)
+
+        #cart_names = []
+        #cart_names.append(carts[indx[0]])
+        #cart_names.append(carts[indx[1]])
+
+        #print(cart_names)
+        #print(speeds)
+
+        return ['konqi', 'hexley']
 
     def act(self, player_states, opponent_states, soccer_state):
         from .core_utils import DictObj
