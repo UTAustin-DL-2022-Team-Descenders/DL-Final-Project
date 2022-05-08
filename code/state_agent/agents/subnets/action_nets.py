@@ -149,7 +149,6 @@ class Selection(torch.nn.Module):
         return index
 
     def choose(self,x, y, bias):
-        # No longer using bias when computing last_choice
         self.last_choice = torch.argmax(x + bias if bias is not None else x, dim=0)
         index = self.last_choice.expand([1, y.shape[1]])
 
