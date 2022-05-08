@@ -3,10 +3,10 @@
 
 import torch
 from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
-from state_agent.agents.subnets.features import SoccerFeatures
-from state_agent.agents.subnets.action_nets import LinearWithTanh, LinearWithSigmoid
-from state_agent.agents.subnets.rewards import steering_angle_reward, speed_reward
-from state_agent.agents.subnets.utils import save_model, load_model
+from .features import SoccerFeatures
+from .action_nets import LinearWithTanh, LinearWithSigmoid
+from .rewards import steering_angle_reward, speed_reward
+from .utils_agent import save_model, load_model
 import os
 
 class BaseActor:
@@ -18,7 +18,6 @@ class BaseActor:
         self.sample_type = sample_type
 
         # Set model path and name to save/load BaseActor's action_net
-        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules")
         self.model_name = "base_actor"
 
     def copy(self, action_net):
@@ -104,7 +103,7 @@ class BaseActor:
         # set the save name of the model. User may provide a custom model name or default to self.model_name
         save_model_name = custom_model_name if custom_model_name else self.model_name
 
-        save_model(self.action_net, save_model_name, save_path=self.model_path, use_jit=use_jit)
+        save_model(self.action_net, save_model_name, save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
 
         return self.action_net
 
@@ -115,7 +114,7 @@ class BaseActor:
         # set the load name of the model. User may provide a custom model name or default to self.model_name
         load_model_name = custom_model_name if custom_model_name else self.model_name
 
-        self.action_net = load_model(load_model_name, load_path=self.model_path, model=model, use_jit=use_jit)
+        self.action_net = load_model(load_model_name, load_path=os.path.abspath(os.path.dirname(__file__)), model=model, use_jit=use_jit)
 
         return self.action_net
 
@@ -129,7 +128,7 @@ class SteeringActor(BaseActor):
         super().__init__(LinearWithTanh(1, 1, n_hidden=20, bias=False, scale=None, range=None) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
         # Set model path to save/load SteeringActor's action_net
-        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "steering")
+        self.model_path = os.path.abspath(os.path.dirname(__file__))
 
         # Set model name for saving and loading action net
         self.model_name = "steer_net"
@@ -167,7 +166,7 @@ class DriftActor(BaseActor):
         super().__init__(LinearWithTanh(2, 1, n_hidden=20, bias=True, scale=None, range=None) if action_net is None else action_net, train=train, sample_type="bernoulli")
 
         # Set model path to save/load DriftActor's action_net
-        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "drift")
+        self.model_path = os.path.abspath(os.path.dirname(__file__))
 
         # Set model name for saving and loading action net
         self.model_name = "drift_net"
@@ -222,7 +221,7 @@ class SpeedActor(BaseActor):
         super().__init__(LinearWithTanh(3, 2,  n_hidden=20, bias=False, scale=None, range=None) if action_net is None else action_net, train=train, sample_type="bernoulli", **kwargs)
 
         # Set model path to save/load SpeedActor's action_net
-        self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "modules", "speed")
+        self.model_path = os.path.abspath(os.path.dirname(__file__))
 
         # Set model name for saving and loading action net
         self.model_name = "speed_net"

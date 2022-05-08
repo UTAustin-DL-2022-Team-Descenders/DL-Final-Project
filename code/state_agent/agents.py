@@ -6,8 +6,8 @@ from typing import Union
 import torch
 import copy
 from functools import reduce
-from state_agent.agents.subnets.features import SoccerFeatures, MAX_SPEED
-from state_agent.agents.subnets.utils import DictObj
+from .features import SoccerFeatures, MAX_SPEED
+from .utils_agent import DictObj
 
 class Action:
 
