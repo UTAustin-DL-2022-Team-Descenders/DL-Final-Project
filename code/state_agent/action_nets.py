@@ -15,8 +15,7 @@ def new_action_net(n_outputs=1, type="linear_tanh"):
 
 class BaseNetwork(torch.nn.Module):
 
-    # def __init__(self, net, range: Tuple) -> None:
-    def __init__(self, net, range: Tuple = None) -> None:
+    def __init__(self, net, range: Tuple) -> None:
         super().__init__()
         self.range = range
         self.net = net
@@ -44,7 +43,8 @@ class SingleLinearNetwork(BaseNetwork):
         super().__init__(
             torch.nn.Sequential(
                 *layers
-            )
+            ),
+            ()
         )
 
         self.n_outputs = n_outputs
@@ -119,12 +119,12 @@ class LinearForNormalAndStd(LinearNetwork):
 
 class BooleanClassifier(LinearWithTanh):
 
-    def __init__(self, **kwargs) -> None:
-        super().__init__(n_outputs=1, **kwargs)
+    def __init__(self, n_inputs, n_hidden, bias, scale, range) -> None:
+        super().__init__(n_inputs=n_inputs, n_outputs=1, n_hidden=n_hidden, bias=bias, scale=scale, range=range)
 
 class Selection(torch.nn.Module):
 
-    def __init__(self, classifiers: List[BooleanClassifier], labels_index, n_features, **kwargs) -> None:
+    def __init__(self, classifiers: List[BooleanClassifier], labels_index, n_features) -> None:
         super().__init__()
         self.index_start = labels_index
         self.n_features = n_features
@@ -141,12 +141,10 @@ class Selection(torch.nn.Module):
         return x[self.index_start:].view(-1, self.n_features)
 
     def get_index(self, input):
-        index = []
+        index: List[torch.Tensor] = []
         for classifier in self.classifiers:
             index.append(classifier(input))
-        index = torch.concat(index, dim=1 if input.dim() > 1 else 0)
-
-        return index
+        return torch.concat(index, dim=1 if input.dim() > 1 else 0)
 
     def choose(self,x, y, bias):
         self.last_choice = torch.argmax(x + bias if bias is not None else x, dim=0)
