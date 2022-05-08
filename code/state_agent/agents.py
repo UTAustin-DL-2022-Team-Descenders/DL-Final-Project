@@ -1,8 +1,6 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/23/2022
 
-from argparse import Namespace
-from typing import Union
 import torch
 import copy
 from functools import reduce
