@@ -80,7 +80,7 @@ class Agent(BaseAgent):
     def __init__(self, *args, target_speed=MAX_SPEED, **kwargs):
         super().__init__(*args, extractor=extract_all_features, target_speed=target_speed, **kwargs)
 
-        self.accel = kwargs['accel'] if 'accel' in kwargs else 1.0
+        self.accel = torch.tensor(kwargs['accel'] if 'accel' in kwargs else 1.0)
         self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.actors, False)
 
 
@@ -140,16 +140,19 @@ class ComposedAgent(BaseAgent):
     #  of executing them all as one torch module
     """
 
-    def __init__(self, agent_net: ComposedAgentNetwork, model_name:str, target_speed=MAX_SPEED, **kwargs):  # type: ignore
+    def __init__(self, agent_net: ComposedAgentNetwork = None, target_speed=MAX_SPEED, **kwargs):  # type: ignore
         super().__init__(*[], extractor=extract_all_features, target_speed=target_speed, **kwargs)
-        self.model_name = model_name
-        self.agent_net = agent_net
+        self.agent_net = agent_net if agent_net else ComposedAgentNetwork(
+            SteeringActorNetwork(),
+            SpeedActorNetwork(),
+            DriftActorNetwork()
+        )
 
-    def save_models(self, use_jit=False):
-        save_model(self.agent_net, self.model_name, save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
+    def save_models(self, model_name, use_jit=False):
+        save_model(self.agent_net, model_name, save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
 
-    def load_models(self, use_jit=False):
-        self.agent_net = load_model(self.model_name, model=self.agent_net, load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
+    def load_models(self, model_name, use_jit=False):
+        self.agent_net = load_model(model_name, model=self.agent_net, load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
         return self.agent_net
 
     def invoke_actors(self, action: Action, f: SoccerFeatures):

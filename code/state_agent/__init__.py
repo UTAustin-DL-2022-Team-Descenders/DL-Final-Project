@@ -33,10 +33,10 @@ class Team():
 
         if use_jit:
             self.agents = [
-                self.create_composed_network("agent1_net", # use a different name for agent 1 vs agent 2 based on the configured actors
+                self.create_composed_network("agent_basic_net", # use a different name for agent 1 vs agent 2 based on the configured actors
                     target_speed=21.0
                 ),
-                self.create_composed_network("agent2_net",
+                self.create_composed_network("agent_basic_net",
                     target_speed=12.0
                 )
             ]
@@ -113,8 +113,8 @@ class Team():
             #None   # type: ignore
         )
 
-        agent = ComposedAgent(composed_network, model_name, target_speed=target_speed)
-        agent.load_models(use_jit=True)
+        agent = ComposedAgent(composed_network, target_speed=target_speed)
+        agent.load_models(model_name, use_jit=True)
 
         return agent
 
@@ -139,8 +139,8 @@ class Team():
             #None   # type: ignore
         )
 
-        agent = ComposedAgent(composed_network, model_name)
-        agent.save_models(use_jit=True)
-        print(agent.load_models(use_jit=True).state_dict())
+        agent = ComposedAgent(composed_network)
+        agent.save_models(model_name, use_jit=True)
+        print(agent.load_models(model_name, use_jit=True).state_dict())
 
         return agent
