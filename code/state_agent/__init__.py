@@ -74,8 +74,8 @@ class Team():
         self.drift_actor = DriftActor()
         self.drift_actor.load_model(use_jit=True)
 
-        #self.planner_actor = PlayerPuckGoalPlannerActor()
-        #self.planner_actor.load_model(use_jit=True)
+        self.planner_actor = PlayerPuckGoalPlannerActor()
+        self.planner_actor.load_model(use_jit=True)
 
         #self.ft_planner_actor = PlayerPuckGoalFineTunedPlannerActor(mode="speed")
         #self.ft_planner_actor.load_model(use_jit=True)
@@ -83,7 +83,7 @@ class Team():
 
         self.agents = [
             Agent(
-                #self.planner_actor,
+                self.planner_actor,
                 #self.ft_planner_actor,
                 self.steering_actor,
                 self.speed_actor,
@@ -91,7 +91,7 @@ class Team():
                 target_speed=21.0
             ),
             Agent(
-                # =self.planner_actor,
+                self.planner_actor,
                 # self.ft_planner_actor,
                 self.steering_actor,
                 self.speed_actor,
@@ -104,12 +104,13 @@ class Team():
     def create_composed_network(self, model_name, target_speed=23.0):
         from .agents import BaseTeam, Agent, ComposedAgent, ComposedAgentNetwork
         from .actors import SteeringActor, SpeedActor, DriftActor
+        from .planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
 
         composed_network = ComposedAgentNetwork(
-            SteeringActor().action_net,  # type: ignore
-            SpeedActor().actor_net,     # type: ignore
-            DriftActor().actor_net      # type: ignore
-            #None,  # type: ignore
+            SteeringActor().actor_net,
+            SpeedActor().actor_net,
+            DriftActor().actor_net,
+            PlayerPuckGoalPlannerActor().actor_net
             #None   # type: ignore
         )
 
@@ -121,6 +122,10 @@ class Team():
     def save_composed_network(self, model_name):
         from .agents import BaseTeam, Agent, ComposedAgent, ComposedAgentNetwork
         from .actors import SteeringActor, SpeedActor, DriftActor
+        from .planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
+
+        planner_actor = PlayerPuckGoalPlannerActor()
+        planner_actor.load_model(use_jit=True)
 
         steering_actor = SteeringActor()
         steering_actor.load_model(use_jit=True)
@@ -132,10 +137,10 @@ class Team():
         drift_actor.load_model(use_jit=True)
 
         composed_network = ComposedAgentNetwork(
-            steering_actor.actor_net,  # type: ignore
-            speed_actor.actor_net,     # type: ignore
-            drift_actor.actor_net      # type: ignore
-            #None,  # type: ignore
+            steering_actor.actor_net,
+            speed_actor.actor_net,
+            drift_actor.actor_net,
+            planner_actor.actor_net
             #None   # type: ignore
         )
 
