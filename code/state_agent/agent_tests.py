@@ -1,5 +1,6 @@
 from .agents import ComposedAgent, ComposedAgentNetwork
 from .actors import SteeringActor, SpeedActor, DriftActor
+from .planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
 
 # save a composed agent
 agent = ComposedAgent()
@@ -7,9 +8,13 @@ agent = ComposedAgent()
 steering_actor = SteeringActor()
 speed_actor = SpeedActor()
 drift_actor = DriftActor()
+planner_actor = PlayerPuckGoalPlannerActor()
 print(steering_actor.load_model())
 print(speed_actor.load_model())
 print(drift_actor.load_model())
+print(planner_actor.load_model())
+
+#planner_actor.save_model(use_jit=True)
 
 #steering_actor.save_model(use_jit=True)
 #speed_actor.save_model(use_jit=True)
@@ -33,10 +38,10 @@ print(drift_actor.load_model())
 #drift_actor.load_model()
 
 composed_network = ComposedAgentNetwork(
-    steering_actor.actor_net,   # type: ignore
-    speed_actor.actor_net,     # type: ignore
-    drift_actor.actor_net      # type: ignore
-    #None,  # type: ignore
+    steering_actor.actor_net,
+    speed_actor.actor_net,
+    drift_actor.actor_net,
+    planner_actor.actor_net
     #None   # type: ignore
 )
 

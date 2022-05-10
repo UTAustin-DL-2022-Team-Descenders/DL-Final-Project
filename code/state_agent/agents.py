@@ -6,6 +6,7 @@ import torch
 import copy
 import os.path
 from functools import reduce
+from state_agent.planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
 from state_agent.actors import BaseActor
 from state_agent.actors import DriftActorNetwork, SpeedActorNetwork, SteeringActorNetwork
 from state_agent.core_utils import save_model, load_model
@@ -102,20 +103,25 @@ class ComposedAgentNetwork(torch.nn.Module):
     def __init__(self,
     steering_actor: SteeringActorNetwork,
     speed_actor: SpeedActorNetwork,
-    drift_actor: DriftActorNetwork
+    drift_actor: DriftActorNetwork,
+    planner_actor: PlayerPuckGoalPlannerActor
     ) -> None:
         super().__init__()
 
         self.steering_actor = steering_actor
         self.speed_actor = speed_actor
         self.drift_actor = drift_actor
-        #self.planner_actor = planner_actor
+        self.planner_actor = planner_actor
         #self.ft_planner_actor = ft_planner_actor
 
 
     def forward(self, action: Action, f: SoccerFeatures):
 
         # the struggle is real with TorchScript.. you can't call helper methods that use nn.Module so these lines have to be duplicated
+
+        if self.planner_actor is not None:
+            x = torch.as_tensor(self.planner_actor.select_features(f)).view(-1)
+            self.planner_actor(action, x, f)
 
         if self.steering_actor is not None:
             x = torch.as_tensor(self.steering_actor.select_features(f)).view(-1)
@@ -143,7 +149,8 @@ class ComposedAgent(BaseAgent):
         self.agent_net = agent_net if agent_net else ComposedAgentNetwork(
             SteeringActorNetwork(),
             SpeedActorNetwork(),
-            DriftActorNetwork()
+            DriftActorNetwork(),
+            PlayerPuckGoalPlannerActor()
         )
 
     def save_models(self, model_name, use_jit=False):

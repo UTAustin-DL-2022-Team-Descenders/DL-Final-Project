@@ -15,7 +15,7 @@ def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.pat
         print(f"Saved {model_name} to {save_path}")
 
 
-def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=False, model=None, verbose=False):
+def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=False, model=None, conversion = None, verbose=False):
 
     try:
         if use_jit:
@@ -23,6 +23,8 @@ def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirna
             model.eval()
         else: # Otherwise use Pickle. Need to use model_class for this
             loaded = torch.load(os.path.join(load_path, f"{model_name}.th"))
+            if conversion:
+                loaded = conversion(loaded)
             model.load_state_dict(loaded)
             model.eval()
 

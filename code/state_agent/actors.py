@@ -143,25 +143,25 @@ class BaseActor:
 
         return self.actor_net
 
-    def load_model(self, custom_model_name=None, model=None, use_jit=False):
+    def load_model(self, custom_model_name=None, model=None, use_jit=False, conversion=None):
 
         model = model if model else self.actor_net
 
         # set the load name of the model. User may provide a custom model name or default to self.model_name
         load_model_name = custom_model_name if custom_model_name else self.model_name
 
-        self.actor_net = load_model(load_model_name, load_path=os.path.abspath(os.path.dirname(__file__)), model=model, use_jit=use_jit)
+        self.actor_net = load_model(load_model_name, load_path=os.path.abspath(os.path.dirname(__file__)), model=model, use_jit=use_jit, conversion=conversion)
 
         return self.actor_net
 
-    def load_action_net(self, custom_model_name=None, model=None, use_jit=False):
+    def load_action_net(self, custom_model_name=None, model=None, use_jit=False, conversion=None):
 
         model = model if model else self.actor_net.action_net
 
         # set the load name of the model. User may provide a custom model name or default to self.model_name
         load_model_name = custom_model_name if custom_model_name else self.model_name
 
-        self.actor_net.action_net = load_model(load_model_name, load_path=os.path.abspath(os.path.dirname(__file__)), model=model, use_jit=use_jit)
+        self.actor_net.action_net = load_model(load_model_name, load_path=os.path.abspath(os.path.dirname(__file__)), model=model, use_jit=use_jit, conversion=conversion)
 
         return self.actor_net.action_net
 

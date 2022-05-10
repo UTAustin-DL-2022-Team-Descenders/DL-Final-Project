@@ -213,10 +213,9 @@ class SoccerFeatures:
         self.features: torch.Tensor = features
         self.planner_bias: torch.Tensor = planner_bias
 
-    def set_features(self, indices, values):
+    def set_features(self, indices: List[int], values: torch.Tensor):
         for idx, f in zip(indices, values):
             self.features[idx] = f.item()
-            #print("update {} to {} = {}".format(idx, f.item(), self.features[idx]))
 
     def select_indicies(self, indices: List[int]):
         return self.features[indices]
