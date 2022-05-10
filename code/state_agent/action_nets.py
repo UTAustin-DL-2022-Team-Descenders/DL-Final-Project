@@ -84,7 +84,6 @@ class LinearWithTanh(torch.nn.Module):
 
     def __init__(self, n_inputs, n_outputs, n_hidden, bias, scale, range) -> None:
         super().__init__()
-        self.activation = "Tanh"
         self.linear = LinearNetwork(activation=torch.nn.Tanh, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, scale=scale, range=range)
 
     def forward(self, x):
@@ -96,6 +95,10 @@ class LinearWithTanh(torch.nn.Module):
         else:
             output = self.linear(x)
             return output
+
+    @property
+    def activation(self):
+        return self.linear.activation
 
 class LinearWithSoftmax(LinearNetwork):
 
@@ -121,6 +124,9 @@ class BooleanClassifier(LinearWithTanh):
 
     def __init__(self, n_inputs, n_hidden, bias, scale, range) -> None:
         super().__init__(n_inputs=n_inputs, n_outputs=1, n_hidden=n_hidden, bias=bias, scale=scale, range=range)
+
+    def get_range(self):
+        return self.linear.base.range
 
 class Selection(torch.nn.Module):
 

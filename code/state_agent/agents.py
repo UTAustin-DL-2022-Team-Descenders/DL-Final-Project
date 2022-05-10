@@ -117,19 +117,17 @@ class ComposedAgentNetwork(torch.nn.Module):
 
         # the struggle is real with TorchScript.. you can't call helper methods that use nn.Module so these lines have to be duplicated
 
-        #x = torch.as_tensor(self.steering_actor.select_features(f)).view(-1)
-
         if self.steering_actor is not None:
             x = torch.as_tensor(self.steering_actor.select_features(f)).view(-1)
-            self.steering_actor(action, x)
+            self.steering_actor(action, x, f)
 
         if self.speed_actor is not None:
             x = torch.as_tensor(self.speed_actor.select_features(f)).view(-1)
-            self.speed_actor(action, x)
+            self.speed_actor(action, x, f)
 
         if self.drift_actor is not None:
             x = torch.as_tensor(self.drift_actor.select_features(f)).view(-1)
-            self.drift_actor(action, x)
+            self.drift_actor(action, x, f)
 
         return action
 

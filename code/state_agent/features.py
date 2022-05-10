@@ -14,6 +14,7 @@ PUCK_MAX_STEER_OFFSET = 0.35 # 35~45 degrees when [0,1] maps to [0,np.pi]
 NEAR_WALL_OFFSET = 60.0
 NEAR_WALL_STD = 2.0
 
+PLANNER_BIAS = [0.0, 0.0, 0.15]
 
 def get_obj1_to_obj2_angle(object1_center, object2_center):
     object1_direction = get_obj1_to_obj2_direction(object1_center, object2_center)
@@ -159,7 +160,7 @@ def extract_all_features(kart_info, soccer_state, team_num, absolute=False, targ
     features[SoccerFeatures.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
     features[SoccerFeatures.PUCK_GOAL_ANGLE] = steer_angle_puck_goal
 
-    return SoccerFeatures(torch.as_tensor(features))
+    return SoccerFeatures(torch.as_tensor(features), torch.as_tensor(PLANNER_BIAS))
 
 @torch.jit.script
 class SoccerFeatures:
@@ -185,9 +186,9 @@ class SoccerFeatures:
     STEERING_ANGLE = 43
     PLAYER_PUCK_GOAL_ANGLE = 44
 
-    def __init__(self, features: torch.Tensor):
+    def __init__(self, features: torch.Tensor, planner_bias: torch.Tensor):
 
-        # Torch script doesn't class instances !!!!
+        # Torch script doesn't like class instances !!!!
         self.PLAYER_PUCK_DISTANCE = 2
         self.PLAYER_WALL_DISTANCE = 3
         self.PUCK_GOAL_DISTANCE = 5
@@ -210,6 +211,7 @@ class SoccerFeatures:
         self.PLAYER_PUCK_GOAL_ANGLE = 44
 
         self.features: torch.Tensor = features
+        self.planner_bias: torch.Tensor = planner_bias
 
     def set_features(self, indices, values):
         for idx, f in zip(indices, values):
@@ -266,3 +268,6 @@ class SoccerFeatures:
 
     def select_puck_goal_distance(self):
         return self.features[self.PUCK_GOAL_DISTANCE]
+
+    def selection_planner_bias(self):
+        return self.planner_bias

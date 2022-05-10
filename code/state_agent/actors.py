@@ -2,14 +2,17 @@
 # Creation Date: 4/19/2022
 
 import torch
+from torch.jit import script as torchscript
 from torch.distributions import Bernoulli, Normal, Categorical, OneHotCategorical
+from state_agent.action_nets import LinearNetwork
+from state_agent.action_nets import BaseNetwork
 from state_agent.features import SoccerFeatures
-from state_agent.action_nets import LinearWithTanh, LinearWithSigmoid
+from state_agent.action_nets import LinearWithTanh
 from state_agent.rewards import steering_angle_reward, speed_reward
 from state_agent.core_utils import save_model, load_model
 import os
 
-@torch.jit.script
+@torchscript
 class Action:
 
     def __init__(self):
@@ -53,7 +56,7 @@ class BaseActor:
         self.model_name = "base_actor"
 
     @property
-    def action_net(self):
+    def action_net(self) -> LinearNetwork:
         return self.actor_net.action_net
 
     def copy(self, actor_net):
@@ -82,8 +85,9 @@ class BaseActor:
 
     def log_prob(self, *args, actions):
         input = args[0]
-        if self.actor_net.action_net.activation == "Tanh" or \
-           self.action_net.activation == "Hardtanh":
+        if  type(self.actor_net.action_net) == LinearNetwork and \
+            self.action_net.activation == "Tanh" or \
+            self.action_net.activation == "Hardtanh":
             input = (input + 1) / 2
         if self.sample_type == "bernoulli":
             dist = Bernoulli(probs=input) if self.action_net.activation != None else Bernoulli(logits=input)
@@ -135,20 +139,31 @@ class BaseActor:
         # set the save name of the model. User may provide a custom model name or default to self.model_name
         save_model_name = custom_model_name if custom_model_name else self.model_name
 
-        save_model(self.actor_net.action_net, save_model_name, save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
+        save_model(self.actor_net, save_model_name, save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
 
-        return self.action_net
+        return self.actor_net
 
     def load_model(self, custom_model_name=None, model=None, use_jit=False):
 
-        model = model if model else self.action_net
+        model = model if model else self.actor_net
+
+        # set the load name of the model. User may provide a custom model name or default to self.model_name
+        load_model_name = custom_model_name if custom_model_name else self.model_name
+
+        self.actor_net = load_model(load_model_name, load_path=os.path.abspath(os.path.dirname(__file__)), model=model, use_jit=use_jit)
+
+        return self.actor_net
+
+    def load_action_net(self, custom_model_name=None, model=None, use_jit=False):
+
+        model = model if model else self.actor_net.action_net
 
         # set the load name of the model. User may provide a custom model name or default to self.model_name
         load_model_name = custom_model_name if custom_model_name else self.model_name
 
         self.actor_net.action_net = load_model(load_model_name, load_path=os.path.abspath(os.path.dirname(__file__)), model=model, use_jit=use_jit)
 
-        return self.action_net
+        return self.actor_net.action_net
 
     def select_features(self, features: SoccerFeatures):
         return self.actor_net.select_features(features)
@@ -160,7 +175,7 @@ class SteeringActorNetwork(BaseActorNetwork):
         # inputs: delta steering angle
         super().__init__(LinearWithTanh(1, 1, n_hidden=20, bias=False, scale=None, range=None))
 
-    def forward(self, action: Action, f: torch.Tensor):
+    def forward(self, action: Action, f: torch.Tensor, features: SoccerFeatures):
         output = self.action_net(f)
         action.steer = output[0]
         return output
@@ -184,8 +199,8 @@ class SteeringActor(BaseActor):
         self.model_name = "steer_net"
 
 
-    def __call__(self, action, f, train=False, **kwargs):
-        output = self.actor_net(action, f)
+    def __call__(self, action, f, extractor, train=False, **kwargs):
+        output = self.actor_net(action, f, extractor)
         if self.train is not None:
             train = self.train
         if train:
@@ -207,7 +222,7 @@ class DriftActorNetwork(BaseActorNetwork):
         # inputs: delta steering angle
         super().__init__(LinearWithTanh(2, 1, n_hidden=20, bias=True, scale=None, range=None))
 
-    def forward(self, action: Action, f: torch.Tensor):
+    def forward(self, action: Action, f: torch.Tensor, features: SoccerFeatures):
         output = self.action_net(f)
         # drift is a binary value
         action.drift = output[0] > 0
@@ -235,8 +250,8 @@ class DriftActor(BaseActor):
         self.model_name = "drift_net"
 
 
-    def __call__(self, action, f, train=True, **kwargs):
-        output = self.actor_net(action, f)
+    def __call__(self, action, f, extractor, train=True, **kwargs):
+        output = self.actor_net(action, f, extractor)
         if self.train is not None:
             train = self.train
         if train:            
@@ -269,7 +284,7 @@ class SpeedActorNetwork(BaseActorNetwork):
         #   brake (boolean)
         super().__init__(LinearWithTanh(3, 2,  n_hidden=20, bias=False, scale=None, range=None))
 
-    def forward(self, action: Action, f: torch.Tensor):
+    def forward(self, action: Action, f: torch.Tensor, features: SoccerFeatures):
         output = self.action_net(f)
 
         # round output due to continuous gradient never being exactly zero
@@ -304,8 +319,8 @@ class SpeedActor(BaseActor):
         self.model_name = "speed_net"
 
 
-    def __call__(self, action, f, train=True, **kwargs):
-        output = self.actor_net(action, f)
+    def __call__(self, action, f, extractor, train=True, **kwargs):
+        output = self.actor_net(action, f, extractor)
         if self.train is not None:
             train = self.train
         if train:
