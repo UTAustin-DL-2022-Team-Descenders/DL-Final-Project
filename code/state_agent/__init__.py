@@ -33,10 +33,10 @@ class Team():
 
         if use_jit:
             self.agents = [
-                self.create_composed_network("agent_basic_net", # use a different name for agent 1 vs agent 2 based on the configured actors
+                self.create_composed_network("agent1_net", # use a different name for agent 1 vs agent 2 based on the configured actors
                     target_speed=21.0
                 ),
-                self.create_composed_network("agent_basic_net",
+                self.create_composed_network("agent2_net",
                     target_speed=12.0
                 )
             ]
