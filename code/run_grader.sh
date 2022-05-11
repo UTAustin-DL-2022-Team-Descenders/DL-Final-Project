@@ -19,12 +19,6 @@ if [[ -f grader.txt ]]; then
   rm grader.txt
 fi
 
-# Remove any stats files that existed before
-if [[ -f stat.csv ]] || [[ -f stats.csv ]]; then
-  rm stat.csv
-  rm stats.csv
-fi
-
 # Redirect grader outputs into grader.txt
 for (( i=1; i<=$n; i++  ))
 do

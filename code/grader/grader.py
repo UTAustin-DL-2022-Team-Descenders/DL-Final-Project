@@ -47,6 +47,7 @@ def case(func, kwargs={}, score=1, extra_credit=False):
                 v = func(self, **a)
                 if v is None:
                     v = 1
+                    print('free credit', func)
                 elif isinstance(v, tuple):
                     v, msg = v
                 else:
@@ -122,7 +123,6 @@ class Grader:
                 score += s
                 if self.verbose:
                     print('  - %-50s [ %s ]' % (f.__doc__, msg), file=f_out)
-
                     # log stats
                     a = msg[: msg.index('goals') - 1]
                     b = msg[msg.index('in') + 3 : msg.index('games') - 1]
@@ -130,8 +130,9 @@ class Grader:
                     n = msg.index('games') + len('games ')
                     c = msg[n : n + m]
                     d = msg[msg.index('locations') + len('locations '):]
+                    txt_to_file = f'{a}, {b}, {c}, {d}'
                     with open('./stats.csv', 'a') as ff:
-                        ff.write(f'{a}, {b}, {c}, {d}, {f.__doc__}\n')
+                        ff.write(f'{txt_to_file}, {f.__doc__}\n')
                     os.rename('./stats.csv', 'stat.csv')  # hack to save the first match info of the series
 
                 if not f.extra_credit:

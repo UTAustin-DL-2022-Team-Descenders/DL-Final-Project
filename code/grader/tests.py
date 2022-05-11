@@ -95,6 +95,7 @@ class FinalGrader(Grader):
         """jurgen agent"""
         if self.student_model.agent_type == 'state':
             scores, results, ball_locations = self._test('jurgen_agent')
+            return min(scores / len(results), 1), f"{scores} goals scored in {len(results)} games ({'  '.join(results)}) using starting locations {ball_locations}"
         else:
             scores, results, ball_locations = self._test('image_jurgen_agent')
             return min(scores / len(results), 1), f"{scores} goals scored in {len(results)} games ({'  '.join(results)}) using starting locations {ball_locations}"
