@@ -52,6 +52,7 @@ class FinalGrader(Grader):
         if RANDOMIZE_BALL_LOCATION:
             ball_locations = np.random.uniform(-1, 1, (4, 2))
 
+        scores = []
         results = []
         try:
             for bl in ball_locations:
