@@ -1,3 +1,6 @@
+import os
+
+from state_agent.core_utils import load_model
 from .agents import ComposedAgent, ComposedAgentNetwork
 from .actors import SteeringActor, SpeedActor, DriftActor
 from .planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
@@ -10,11 +13,12 @@ speed_actor = SpeedActor()
 drift_actor = DriftActor()
 planner_actor = PlayerPuckGoalPlannerActor()
 ft_planner_actor = PlayerPuckGoalFineTunedPlannerActor()
-print(steering_actor.load_model())
-print(speed_actor.load_model())
-print(drift_actor.load_model())
-print(planner_actor.load_model())
-print(ft_planner_actor.load_model())
+path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../models"))
+print(load_model(model=steering_actor.actor_net, model_name="steer_net", load_path=path))
+print(load_model(model=speed_actor.actor_net, model_name="speed_net", load_path=path))
+print(load_model(model=drift_actor.actor_net, model_name="drift_net", load_path=path))
+print(load_model(model=planner_actor.actor_net, model_name="planner_net", load_path=path))
+print(load_model(model=ft_planner_actor.actor_net, model_name="ft_planner_net", load_path=path))
 
 #planner_actor.save_model(use_jit=True)
 

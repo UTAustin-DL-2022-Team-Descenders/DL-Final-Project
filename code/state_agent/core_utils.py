@@ -1,5 +1,7 @@
 import os.path
+import sys
 import torch
+
 
 # StateAgent agnostic Save & Load model functions. Used in state_agent.py Match
 def save_model(model, model_name="state_agent", save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=False, verbose=False):
@@ -22,7 +24,8 @@ def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirna
             model = torch.jit.load(os.path.join(load_path, f"{model_name}.pt"))
             model.eval()
         else: # Otherwise use Pickle. Need to use model_class for this
-            loaded = torch.load(os.path.join(load_path, f"{model_name}.th"))
+            fp = os.path.join(load_path, f"{model_name}.th")
+            loaded = torch.load(fp)
             if conversion:
                 loaded = conversion(loaded)
             model.load_state_dict(loaded)
@@ -32,7 +35,7 @@ def load_model(model_name="state_agent", load_path=os.path.abspath(os.path.dirna
             print("Loaded pre-existing network from", load_path)
         return model
     except FileNotFoundError as e:
-        sys.exit(f"Problem loading model: {e.strerror}")
+        sys.exit(f"Problem loading model '{model_name}': {e.strerror}")
     except ValueError as e:
         raise e
 
