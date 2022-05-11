@@ -77,20 +77,20 @@ class FinalGrader(Grader):
         scores, results, ball_locations = self._test('geoffrey_agent')
         return min(scores / len(results), 1), f"{scores} goals scored in {len(results)} games ({'  '.join(results)}) using starting locations {ball_locations}"
 
-@Case(score=25)
+    @Case(score=25)
     def test_yann(self):
         """yann agent"""
         scores, results, ball_locations = self._test('yann_agent')
         return min(scores / len(results), 1), f"{scores} goals scored in {len(results)} games ({'  '.join(results)}) using starting locations {ball_locations}"
 
-@Case(score=25)
+    @Case(score=25)
     def test_yoshua(self):
         """yoshua agent"""
         scores, results, ball_locations = self._test('yoshua_agent')
         return min(scores / len(results), 1), f"{scores} goals scored in {len(results)} games ({'  '.join(results)}) using starting locations {ball_locations}"
 
 
-@Case(score=25)
+    @Case(score=25)
     def test_jurgen(self):
         """jurgen agent"""
         if self.student_model.agent_type == 'state':

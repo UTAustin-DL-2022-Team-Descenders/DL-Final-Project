@@ -21,8 +21,8 @@ fi
 
 # Remove any stats files that existed before
 if [[ -f stat.csv ]] || [[ -f stats.csv ]]; then
-  rm stat.txt
-  rm stats.txt
+  rm stat.csv
+  rm stats.csv
 fi
 
 # Redirect grader outputs into grader.txt
