@@ -7,7 +7,7 @@ import numpy as np
 import os
 from torch.nn import functional as F
 from state_agent.actors import BaseActorNetwork, Action
-from state_agent.features import MIN_WALL_SPEED, NEAR_WALL_OFFSET, NEAR_WALL_STD, PUCK_RADIUS, MAX_SPEED, SoccerFeatures
+from state_agent.features import MIN_WALL_SPEED, NEAR_WALL_OFFSET, NEAR_WALL_STD, PUCK_RADIUS, MAX_SPEED, SoccerFeatures, SoccerFeaturesLabels
 from state_agent.action_nets import BooleanClassifier, LinearNetwork, Selection, LinearWithTanh
 from state_agent.actors import BaseActor
 from state_agent.rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continuous_causal_reward, MAX_SOCCER_DISTANCE_REWARD, continuous_causal_reward_ext, steering_angle_reward
@@ -54,7 +54,7 @@ class Classifier(BaseActor):
 
 class HeadToPuckClassifier(Classifier):
 
-    FEATURES = [SoccerFeatures.PLAYER_PUCK_DISTANCE]
+    FEATURES = [SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE]
 
     def __init__(self, range, **kwargs):
         # inputs: 
@@ -75,7 +75,7 @@ class HeadToPuckClassifier(Classifier):
         
 class PuckToGoalClassifier(Classifier):
 
-    FEATURES = [SoccerFeatures.PLAYER_PUCK_DISTANCE]
+    FEATURES = [SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE]
 
     def __init__(self, range, **kwargs):
         # inputs: 
@@ -98,9 +98,9 @@ class PuckToGoalClassifier(Classifier):
 class RecoverTowardsPuck(Classifier):
 
     FEATURES = [        
-        SoccerFeatures.SPEED,        
-        SoccerFeatures.PREVIOUS_SPEED,
-        SoccerFeatures.PLAYER_PUCK_ANGLE
+        SoccerFeaturesLabels.SPEED,
+        SoccerFeaturesLabels.PREVIOUS_SPEED,
+        SoccerFeaturesLabels.PLAYER_PUCK_ANGLE
     ]
 
     def __init__(self, range, action_net=None, train=None, **kwargs):
@@ -176,17 +176,15 @@ class PlayerPuckGoalPlannerActorNetwork(BaseActorNetwork):
 
     def select_features(self, features: SoccerFeatures):
         pp_attack_angle = features.select_player_puck_attack_angle()
-        pp_angle = features.select_player_puck_angle()
+        reverse_steer_angle = features.select_player_reverse_steer_angle()
         counter_steer_angle = features.select_player_puck_countersteer_angle()
         speed = features.select_speed()
         delta_speed = features.select_delta_speed()
         target_speed = features.select_target_speed()
+        negative_speed = features.select_speed_behind()
+        delta_negative_speed = features.select_delta_speed_behind()
 
         #print("Speed", speed)
-
-        # adjust the puck target angle to head towards the angle of incidence
-
-        # XXX might need to be fixed to address 'one-network' rule
 
         labels = torch.cat([
 
@@ -201,9 +199,9 @@ class PlayerPuckGoalPlannerActorNetwork(BaseActorNetwork):
             target_speed[None],
 
             # drive backwards
-            (-0.5 * torch.sign(pp_angle))[None], # steer in direction opposite of puck direction
-            (-target_speed - speed)[None], # negative delta, ie reverse as fast as possible
-            (-target_speed)[None], # negative target speed, ie reverse
+            reverse_steer_angle[None], # steer in direction opposite of puck direction
+            delta_negative_speed[None], # negative delta, ie reverse as fast as possible
+            negative_speed[None], # negative target speed, ie reverse
 
         ])
 
@@ -343,15 +341,15 @@ class PlayerPuckGoalFineTunedPlannerActorNetwork(BaseActorNetwork):
 
 
         self.FEATURES = [
-            SoccerFeatures.PLAYER_PUCK_DISTANCE,
-            SoccerFeatures.SPEED,
-            SoccerFeatures.PREVIOUS_SPEED,
-            SoccerFeatures.TARGET_SPEED,
-            SoccerFeatures.PLAYER_PUCK_ANGLE,
-            SoccerFeatures.PUCK_GOAL_DISTANCE,
-            SoccerFeatures.PUCK_GOAL_ANGLE,
-            SoccerFeatures.PLAYER_PUCK_COUNTER_STEER_ANGLE,
-            SoccerFeatures.PLANNER_CHOICE
+            SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE,
+            SoccerFeaturesLabels.SPEED,
+            SoccerFeaturesLabels.PREVIOUS_SPEED,
+            SoccerFeaturesLabels.TARGET_SPEED,
+            SoccerFeaturesLabels.PLAYER_PUCK_ANGLE,
+            SoccerFeaturesLabels.PUCK_GOAL_DISTANCE,
+            SoccerFeaturesLabels.PUCK_GOAL_ANGLE,
+            SoccerFeaturesLabels.PLAYER_PUCK_COUNTER_STEER_ANGLE,
+            SoccerFeaturesLabels.PLANNER_CHOICE
         ]
 
         self.OUTPUT_STEERING_OFFSET = 0
@@ -382,6 +380,9 @@ class PlayerPuckGoalFineTunedPlannerActorNetwork(BaseActorNetwork):
         return self.action_net(f)
 
     def set_output_features(self, outputs: torch.Tensor, extractor: SoccerFeatures):
+
+        # we only partially trained this network, so the MODE flag will help zero out the
+        # untrained outputs!
 
         # zero out features when the network is only trained for certain output behaviors
         if self.mode == self.MODE_STEERING:

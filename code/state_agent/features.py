@@ -140,52 +140,32 @@ def extract_all_features(kart_info, soccer_state, team_num, absolute=False, targ
     features = np.zeros(45).astype(np.float32)
 
     features[0:2] = p - puck
-    features[SoccerFeatures.PLAYER_WALL_DISTANCE] = (np.linalg.norm(p) - NEAR_WALL_OFFSET) / (NEAR_WALL_STD)
-    features[SoccerFeatures.PLAYER_PUCK_DISTANCE] =  pp_dist
-    features[SoccerFeatures.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
-    features[SoccerFeatures.SPEED] = speed
-    features[SoccerFeatures.PREVIOUS_ACCEL] = last_action.acceleration if last_action is not None else 0.0
-    features[SoccerFeatures.PREVIOUS_STEER] = last_action.steer if last_action is not None else 0.0
-    features[SoccerFeatures.PREVIOUS_SPEED] = previous_speed
-    features[SoccerFeatures.TARGET_SPEED] = target_speed
-    features[SoccerFeatures.TARGET_SPEED_BEHIND] = speed_negative
-    features[SoccerFeatures.DELTA_SPEED] = target_speed - speed
-    features[SoccerFeatures.DELTA_SPEED_BEHIND] = speed_negative - speed
-    features[SoccerFeatures.STEERING_ANGLE] = steer_puck_angle_diff # by default, steer towards the puck
-    features[SoccerFeatures.STEERING_ANGLE_BEHIND] = steer_angle_behind
-    features[SoccerFeatures.PLAYER_PUCK_ATTACK_ANGLE] = steer_angle_puck_incidence_diff
-    features[SoccerFeatures.PLAYER_GOAL_ANGLE] = steer_angle_goal_diff
-    features[SoccerFeatures.PLAYER_PUCK_ANGLE] = steer_puck_angle_diff
-    features[SoccerFeatures.PLAYER_PUCK_GOAL_ANGLE] = 0 #steer_puck_goal_angle_diff
-    features[SoccerFeatures.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
-    features[SoccerFeatures.PUCK_GOAL_ANGLE] = steer_angle_puck_goal
+    features[SoccerFeaturesLabels.PLAYER_WALL_DISTANCE] = (np.linalg.norm(p) - NEAR_WALL_OFFSET) / (NEAR_WALL_STD)
+    features[SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE] =  pp_dist
+    features[SoccerFeaturesLabels.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
+    features[SoccerFeaturesLabels.SPEED] = speed
+    features[SoccerFeaturesLabels.PREVIOUS_ACCEL] = last_action.acceleration if last_action is not None else 0.0
+    features[SoccerFeaturesLabels.PREVIOUS_STEER] = last_action.steer if last_action is not None else 0.0
+    features[SoccerFeaturesLabels.PREVIOUS_SPEED] = previous_speed
+    features[SoccerFeaturesLabels.TARGET_SPEED] = target_speed
+    features[SoccerFeaturesLabels.TARGET_SPEED_BEHIND] = speed_negative
+    features[SoccerFeaturesLabels.DELTA_SPEED] = target_speed - speed
+    features[SoccerFeaturesLabels.DELTA_SPEED_BEHIND] = speed_negative - speed
+    features[SoccerFeaturesLabels.STEERING_ANGLE] = steer_puck_angle_diff # by default, steer towards the puck
+    features[SoccerFeaturesLabels.STEERING_ANGLE_BEHIND] = steer_angle_behind
+    features[SoccerFeaturesLabels.PLAYER_PUCK_ATTACK_ANGLE] = steer_angle_puck_incidence_diff
+    features[SoccerFeaturesLabels.PLAYER_GOAL_ANGLE] = steer_angle_goal_diff
+    features[SoccerFeaturesLabels.PLAYER_PUCK_ANGLE] = steer_puck_angle_diff
+    features[SoccerFeaturesLabels.PLAYER_PUCK_GOAL_ANGLE] = 0 #steer_puck_goal_angle_diff
+    features[SoccerFeaturesLabels.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
+    features[SoccerFeaturesLabels.PUCK_GOAL_ANGLE] = steer_angle_puck_goal
+    features[SoccerFeaturesLabels.PLAYER_REVERSE_STEER_ANGLE] = -0.5 * np.sign(steer_puck_angle_diff)
 
     return SoccerFeatures(torch.as_tensor(features), torch.as_tensor(PLANNER_BIAS))
 
 @torch.jit.script
 class SoccerFeatures:
     
-    PLAYER_PUCK_DISTANCE = 2
-    PLAYER_WALL_DISTANCE = 3
-    PUCK_GOAL_DISTANCE = 5    
-    PLANNER_CHOICE = 6
-    PREVIOUS_SPEED = 29
-    DELTA_SPEED_BEHIND = 30
-    TARGET_SPEED_BEHIND = 31
-    SPEED = 32
-    TARGET_SPEED = 33    
-    DELTA_SPEED = 34
-    PREVIOUS_ACCEL = 35
-    PREVIOUS_STEER = 36
-    PLAYER_PUCK_ATTACK_ANGLE = 37
-    PUCK_GOAL_ANGLE = 38
-    PLAYER_GOAL_ANGLE = 39
-    PLAYER_PUCK_COUNTER_STEER_ANGLE = 40        
-    STEERING_ANGLE_BEHIND = 41
-    PLAYER_PUCK_ANGLE = 42
-    STEERING_ANGLE = 43
-    PLAYER_PUCK_GOAL_ANGLE = 44
-
     def __init__(self, features: torch.Tensor, planner_bias: torch.Tensor):
 
         # Torch script doesn't like class instances !!!!
@@ -193,6 +173,7 @@ class SoccerFeatures:
         self.PLAYER_WALL_DISTANCE = 3
         self.PUCK_GOAL_DISTANCE = 5
         self.PLANNER_CHOICE = 6
+        self.PLAYER_REVERSE_STEER_ANGLE = 28
         self.PREVIOUS_SPEED = 29
         self.DELTA_SPEED_BEHIND = 30
         self.TARGET_SPEED_BEHIND = 31
@@ -268,5 +249,11 @@ class SoccerFeatures:
     def select_puck_goal_distance(self):
         return self.features[self.PUCK_GOAL_DISTANCE]
 
+    def select_player_reverse_steer_angle(self):
+        return self.features[self.PLAYER_REVERSE_STEER_ANGLE]
+
     def selection_planner_bias(self):
         return self.planner_bias
+
+# use this as a replacement for the class instance to grab the feature labels
+SoccerFeaturesLabels = SoccerFeatures(None, None) # type: ignore
