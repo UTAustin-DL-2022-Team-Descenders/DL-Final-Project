@@ -1,4 +1,5 @@
 import sys
+import os
 
 
 class CheckFailed(Exception):
@@ -117,9 +118,22 @@ class Grader:
         for n, f in inspect.getmembers(self):
             if hasattr(f, 'score'):
                 s, msg = f()
+                msg = msg.replace('\n', ', ')
                 score += s
                 if self.verbose:
                     print('  - %-50s [ %s ]' % (f.__doc__, msg), file=f_out)
+
+                    # log stats
+                    a = msg[: msg.index('goals') - 1]
+                    b = msg[msg.index('in') + 3 : msg.index('games') - 1]
+                    m = len('(0:1  1:1  2:0  1:0  1:0  2:0  1:0  2:1)')
+                    n = msg.index('games') + len('games ')
+                    c = msg[n : n + m]
+                    d = msg[msg.index('locations') + len('locations '):]
+                    with open('./stats.csv', 'a') as ff:
+                        ff.write(f'{a}, {b}, {c}, {d}, {f.__doc__}\n')
+                    os.rename('./stats.csv', 'stat.csv')  # hack to save the first match info of the series
+
                 if not f.extra_credit:
                     total_score += f.score
 

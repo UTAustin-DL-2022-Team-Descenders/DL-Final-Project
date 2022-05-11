@@ -1,6 +1,7 @@
 import logging
 import numpy as np
 from collections import namedtuple
+import os
 
 TRACK_NAME = 'icy_soccer_field'
 MAX_FRAMES = 1000
@@ -262,6 +263,24 @@ class Match:
 
         race.stop()
         del race
+
+        # using two files as a hack to save the first match info of the series
+        if os.path.exists('./stat.csv') or not os.path.exists('./stats.csv'):
+            with open('./stat.csv', 'a') as f:
+                # Figure out which team our state_agent was assigned to
+                if hasattr(team1._team, 'slowest_act_time'):
+                    # save the cart type and target speed
+                    for j in range(len(team1._team.team_kart_list)):
+                        print(f"{team1._team.team_kart_list[i]} using speed {team1._team.agent_target_speed_list[i]:.1f}", end="; ")
+                        f.write(f"{team1._team.team_kart_list[i]}, {team1._team.agent_target_speed_list[i]:.1f},")
+                    # save the slowest acting times
+                    f.write(str(team1._team.slowest_act_time) + ',')
+                else:
+                    for j in range(len(team2._team.team_kart_list)):
+                        print(f"{team2._team.team_kart_list[i]} using speed {team2._team.agent_target_speed_list[i]:.1f}", end="; ")
+                        f.write(f"{team2._team.team_kart_list[i]}, {team2._team.agent_target_speed_list[i]:.1f},")
+                    f.write(str(team2._team.slowest_act_time) + ',')
+            os.rename('./stat.csv', 'stats.csv')  # hack to get around multiple slowest_act_time
 
         return state.soccer.score
 

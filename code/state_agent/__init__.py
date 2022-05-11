@@ -26,23 +26,20 @@ class Team():
         from .planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
         from .agents import BaseTeam, Agent, BaseAgent
 
-
         # From BaseTeam
         self.team = None
         self.num_players = num_of_players
         self.training_mode = None
         self.agents: List[BaseAgent] = []
-
-        # List of target agent speeds
-        self.agent_target_speed_list = agent_target_speed_list
+        self.time_act_func = time_act_func  # Set flag to denote if we're timing the act function or not
+        self.slowest_act_time = [0, 0, 0, 0, 0]  # set slowest time to act for tracking worst case
+        self.agent_target_speed_list = agent_target_speed_list  # List of target agent speeds
+        self.team_kart_list = team_kart_list  # List of karts on this team
 
         # Add random agent target speeds if one wasn't given for all num_players
         for i in range(self.num_players - len(self.agent_target_speed_list)):
             agent_target_speed = random.uniform(12, 21)
             self.agent_target_speed_list.append(agent_target_speed)
-
-        # List of karts on this team
-        self.team_kart_list = team_kart_list
 
         # Add random karts to team_kart_list if one wasn't given for all num_players
         for i in range(self.num_players - len(self.team_kart_list)):
@@ -57,12 +54,6 @@ class Team():
         for i in range(num_of_players):
             print(f"{self.team_kart_list[i]} using speed {agent_target_speed_list[i]:.1f}", end="; ")
         print("\n", end="")
-
-        # Set flag to denote if we're timing the act function or not
-        self.time_act_func = time_act_func
-
-        # set slowest time to act for tracking worst case
-        self.slowest_act_time = 0.
 
     def set_training_mode(self, mode):
         self.training_mode = mode
@@ -114,16 +105,20 @@ class Team():
             act_time = end_time-start_time
 
             # Print only the slowest act executions
-            if act_time > self.slowest_act_time:
-                self.slowest_act_time = act_time
-                print(f'Team.act slowest act in {(act_time*1000):.1f}ms')
+            if act_time > min(self.slowest_act_time):
+                # pop the fastest time and add a slower time
+                self.slowest_act_time.append(round(act_time * 1000, 1))
+                self.slowest_act_time.pop(0)
+                self.slowest_act_time.sort()
+                if self.slowest_act_time[0] != 0:
+                    print(f'Team.act slowest five acts in {self.slowest_act_time}ms')
             
             # Print act execution every timestep. 
             # WARNING: adds huge number of print statements
             #print(f'Team.act in {(act_time*1000):.1f}ms')
 
-
         return actions
+
 
     def create_discrete_networks(self):
         from .actors import SteeringActor, SpeedActor, DriftActor

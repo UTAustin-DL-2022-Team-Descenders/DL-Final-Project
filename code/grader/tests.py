@@ -1,6 +1,7 @@
 from .runner import TeamRunner, Match, MatchException
 from .grader import Grader, Case
 import random
+import numpy as np
 
 STEPS_PER_MATCH = 1200
 MAX_TIME_IMAGE = 0.05 * STEPS_PER_MATCH
@@ -18,7 +19,7 @@ AGENT_TARGET_SPEED = [21.0, 12.0] # fixed
 #AGENT_TARGET_SPEED = [] # randomized
 
 # Print the Team act execution
-PRINT_TEAM_ACT_EXECUTION = False
+PRINT_TEAM_ACT_EXECUTION = True
 
 class HockyRunner(TeamRunner):
     """
@@ -50,13 +51,7 @@ class FinalGrader(Grader):
 
         # Randomize ball locations if flag is set
         if RANDOMIZE_BALL_LOCATION:
-            for i in range(len(ball_locations)):
-              
-              # Randomized coordinates fixed to integers between -1 to 1
-              x = random.randint(-1, 1)
-              y = random.randint(-1, 1)
-
-              ball_locations[i] = [x, y]
+            ball_locations = np.random.uniform(-1, 1, (4, 2))
         
         scores = []
         results = []
