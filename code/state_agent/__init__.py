@@ -13,8 +13,9 @@ LEGAL_KART_NAMES = ['adiumy', 'amanda', 'beastie', 'emule', 'gavroche', 'gnu', '
 
 # Fix Team's player karts or Agent target speeds. Randomized if not given
 # The length of these lists must match num_of_players (== 2)
-#TEAM_KART_LIST = ['hexley', 'konqi']
-#AGENT_TARGET_SPEED = [19.0, 16.5]
+#TEAM_KART_LIST = ['konqi', 'hexley']
+#AGENT_TARGET_SPEED = [19.0, 15.5]
+#USE_FINE_TUNED_PLANNER = [True, True]
 TEAM_KART_LIST = []
 AGENT_TARGET_SPEED = []
 USE_FINE_TUNED_PLANNER = []
@@ -76,7 +77,7 @@ class Team():
         self.training_mode = mode
 
     def new_match(self, team: int, num_players: int) -> list:
-        
+
         self.team, self.num_players = team, num_players
 
         use_jit = True
@@ -129,8 +130,8 @@ class Team():
             if act_time > self.slowest_act_time:
                 self.slowest_act_time = act_time
                 print(f'Team.act slowest act in {(act_time*1000):.1f}ms')
-            
-            # Print act execution every timestep. 
+
+            # Print act execution every timestep.
             # WARNING: adds huge number of print statements
             #print(f'Team.act in {(act_time*1000):.1f}ms')
 
