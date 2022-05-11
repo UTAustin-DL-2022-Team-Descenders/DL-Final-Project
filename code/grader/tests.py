@@ -2,21 +2,24 @@ from .runner import TeamRunner, Match, MatchException
 from .grader import Grader, Case
 import random
 import numpy as np
+import os
 
 STEPS_PER_MATCH = 1200
 MAX_TIME_IMAGE = 0.05 * STEPS_PER_MATCH
 MAX_TIME_STATE = 0.01 * STEPS_PER_MATCH
 
+GRADER_TESTING = True if 'GRADER_TESTING' in os.environ else False
+
 # Flag to Randomize Ball starting location
-RANDOMIZE_BALL_LOCATION = True
+RANDOMIZE_BALL_LOCATION = True if GRADER_TESTING else False
 
 # Fix Team's player karts or Agent target speeds. Randomized if empty
 # The length of these lists must match num_of_players (== 2)
-TEAM_KART_LIST = ["tux", "tux"] # fixed
-#TEAM_KART_LIST = [] # randomized
+#TEAM_KART_LIST = ["tux", "tux"] # fixed
+TEAM_KART_LIST = [] if GRADER_TESTING else None # randomized
 
-AGENT_TARGET_SPEED = [21.0, 12.0] # fixed
-#AGENT_TARGET_SPEED = [] # randomized
+#AGENT_TARGET_SPEED = [21.0, 12.0] # fixed
+AGENT_TARGET_SPEED = [] if GRADER_TESTING else None # randomized
 
 # Print the Team act execution
 PRINT_TEAM_ACT_EXECUTION = True
@@ -34,7 +37,11 @@ class FinalGrader(Grader):
     """Match against Instructor/TA's agents"""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.student_model = HockyRunner(self.module.Team(team_kart_list=TEAM_KART_LIST, agent_target_speed_list=AGENT_TARGET_SPEED, time_act_func=PRINT_TEAM_ACT_EXECUTION))
+
+        if GRADER_TESTING:
+            self.student_model = HockyRunner(self.module.Team(team_kart_list=TEAM_KART_LIST, agent_target_speed_list=AGENT_TARGET_SPEED, time_act_func=PRINT_TEAM_ACT_EXECUTION))
+        else:
+            self.student_model = HockyRunner(self.module.Team())
         self.match = Match(use_graphics=self.student_model.agent_type == 'image')
 
     def _test(self, agent_name):

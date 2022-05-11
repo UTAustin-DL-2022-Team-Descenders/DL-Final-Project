@@ -23,5 +23,5 @@ fi
 for (( i=1; i<=$n; i++  ))
 do
   echo "starting run of grader $i"
-  python -m grader state_agent -v >> grader.txt
+  env GRADER_TESTING=1 python -m grader state_agent -v >> grader.txt
 done
