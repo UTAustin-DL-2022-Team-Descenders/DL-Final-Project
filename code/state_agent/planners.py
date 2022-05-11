@@ -304,8 +304,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
     
     def extract_greedy_action(self, action, f):   
 
-        # The planner classifiers are not trained with policy gradients. They are trained with BCE. This is done here as
-        # a way to keep in line with the policy gradient training framework
+        # The planner classifiers are not trained with policy gradients. They are trained with standard labeling loss using BCE.
+        # This is done here as a way to adapt BCE loss to the policy gradient training framework
 
         # Instead of using the greedy action in the probability, use the rewards as a 'label'.
         # Bernoulli calls BCELossWithLogits using the actions as the 'labels', so using the rewards helps the
@@ -372,8 +372,7 @@ class PlayerPuckGoalFineTunedPlannerActorNetwork(BaseActorNetwork):
         self.MODE_STEERING = 1
         self.MODE_BOTH = 2
 
-        self.mode = torch.tensor(mode)
-        #self.register_buffer("mode", self.mode)
+        self.register_buffer("mode", torch.tensor(mode))
 
     def forward(self, action: Action, f: torch.Tensor, extractor: SoccerFeatures):
         outputs = self.call(action, f)
@@ -391,6 +390,7 @@ class PlayerPuckGoalFineTunedPlannerActorNetwork(BaseActorNetwork):
             outputs[self.OUTPUT_SPEED_OFFSET] = 0
 
         elif self.mode == self.MODE_SPEED:
+
             # only train the speed
             outputs[self.OUTPUT_STEERING_OFFSET] = 0
 
@@ -398,28 +398,30 @@ class PlayerPuckGoalFineTunedPlannerActorNetwork(BaseActorNetwork):
         target_speed = extractor.select_target_speed()
         speed = extractor.select_speed()
 
+        fine_tuned_outputs = extractor.select_indicies([
+            extractor.STEERING_ANGLE,
+            extractor.TARGET_SPEED
+        ]) + outputs
+
         # add offset from the fine-tuned net
         # set the output features
         extractor.set_features([
             extractor.STEERING_ANGLE,
             extractor.TARGET_SPEED
-        ], extractor.select_indicies([
-            extractor.STEERING_ANGLE,
-            extractor.TARGET_SPEED
-        ]) + outputs)
+        ], fine_tuned_outputs)
 
         # adjust the delta speed accordingly because the action network only outputs target speeds not offsets
         if self.mode != self.MODE_STEERING:
             extractor.set_features([
                 extractor.DELTA_SPEED
-            ], torch.as_tensor([
-                target_speed + outputs[1] - speed
-            ]))
+            ],
+            (target_speed + outputs[1] - speed)[None]
+            )
 
         return outputs
 
 
-    def select_features(self, features):
+    def select_features(self, features: SoccerFeatures):
         return features.select_indicies(self.FEATURES)
 
 """
@@ -467,7 +469,7 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
 
     def __call__(self, action, f, extractor:SoccerFeatures, train=False, **kwargs):
         
-        offset = self.action_net(f, action, extractor)
+        offset = self.actor_net(action, f, extractor)
 
         if self.train:
             train = self.train

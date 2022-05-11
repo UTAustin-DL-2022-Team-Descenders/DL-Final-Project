@@ -1,24 +1,11 @@
 from .runner import TeamRunner, Match, MatchException
 from .grader import Grader, Case
-import random
+
 
 STEPS_PER_MATCH = 1200
 MAX_TIME_IMAGE = 0.05 * STEPS_PER_MATCH
 MAX_TIME_STATE = 0.01 * STEPS_PER_MATCH
 
-# Flag to Randomize Ball starting location
-RANDOMIZE_BALL_LOCATION = True
-
-# Fix Team's player karts or Agent target speeds. Randomized if empty
-# The length of these lists must match num_of_players (== 2)
-TEAM_KART_LIST = ["tux", "tux"] # fixed
-#TEAM_KART_LIST = [] # randomized
-
-AGENT_TARGET_SPEED = [21.0, 12.0] # fixed
-#AGENT_TARGET_SPEED = [] # randomized
-
-# Print the Team act execution
-PRINT_TEAM_ACT_EXECUTION = False
 
 class HockyRunner(TeamRunner):
     """
@@ -33,31 +20,19 @@ class FinalGrader(Grader):
     """Match against Instructor/TA's agents"""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.student_model = HockyRunner(self.module.Team(team_kart_list=TEAM_KART_LIST, agent_target_speed_list=AGENT_TARGET_SPEED, time_act_func=PRINT_TEAM_ACT_EXECUTION))
+        self.student_model = HockyRunner(self.module.Team())
         self.match = Match(use_graphics=self.student_model.agent_type == 'image')
 
     def _test(self, agent_name):
         time_limit = MAX_TIME_STATE if self.student_model.agent_type == 'state' else MAX_TIME_IMAGE
 
         test_model = TeamRunner(agent_name)
-
         ball_locations = [
             [0, 1],
             [0, -1],
             [1, 0],
             [-1, 0],
         ]
-
-        # Randomize ball locations if flag is set
-        if RANDOMIZE_BALL_LOCATION:
-            for i in range(len(ball_locations)):
-              
-              # Randomized coordinates fixed to integers between -1 to 1
-              x = random.randint(-1, 1)
-              y = random.randint(-1, 1)
-
-              ball_locations[i] = [x, y]
-        
         scores = []
         results = []
 
@@ -80,31 +55,31 @@ class FinalGrader(Grader):
             print(' T1:', e.msg1)
             print(' T2:', e.msg2)
             assert 0
-        return sum(scores), results, ball_locations
+        return sum(scores), results
 
     @Case(score=25)
     def test_geoffrey(self):
         """geoffrey agent"""
-        scores, results, ball_locations = self._test('geoffrey_agent')
-        return min(scores / len(results), 1), f"{scores} goals scored in {len(results)} games ({'  '.join(results)}) using starting locations {ball_locations}"
+        scores, results = self._test('geoffrey_agent')
+        return min(scores / len(results), 1), "{} goals scored in {} games ({})".format(scores, len(results), '  '.join(results))
 
     @Case(score=25)
     def test_yann(self):
         """yann agent"""
-        scores, results, ball_locations = self._test('yann_agent')
-        return min(scores / len(results), 1), f"{scores} goals scored in {len(results)} games ({'  '.join(results)}) using starting locations {ball_locations}"
+        scores, results = self._test('yann_agent')
+        return min(scores / len(results), 1), "{} goals scored in {} games ({})".format(scores, len(results), '  '.join(results))
 
     @Case(score=25)
     def test_yoshua(self):
         """yoshua agent"""
-        scores, results, ball_locations = self._test('yoshua_agent')
-        return min(scores / len(results), 1), f"{scores} goals scored in {len(results)} games ({'  '.join(results)}) using starting locations {ball_locations}"
+        scores, results = self._test('yoshua_agent')
+        return min(scores / len(results), 1), "{} goals scored in {} games ({})".format(scores, len(results), '  '.join(results))
 
     @Case(score=25)
     def test_jurgen(self):
         """jurgen agent"""
         if self.student_model.agent_type == 'state':
-            scores, results, ball_locations = self._test('jurgen_agent')
+            scores, results = self._test('jurgen_agent')
         else:
-            scores, results, ball_locations = self._test('image_jurgen_agent')
-        return min(scores / len(results), 1), f"{scores} goals scored in {len(results)} games ({'  '.join(results)}) using starting locations {ball_locations}"
+            scores, results = self._test('image_jurgen_agent')
+        return min(scores / len(results), 1), "{} goals scored in {} games ({})".format(scores, len(results), '  '.join(results))
