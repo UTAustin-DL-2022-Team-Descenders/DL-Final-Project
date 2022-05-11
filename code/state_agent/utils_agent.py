@@ -1,6 +1,8 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/19/2022
 
+from traceback import print_exc
+from typing import Any
 import torch
 import sys, os
 import pystk
@@ -8,19 +10,21 @@ import ray
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image, ImageFont, ImageDraw
-from state_agent.utils import map_image
+from .utils import map_image
 from state_agent.runner import to_native
-from state_agent.features import SoccerFeatures, cart_location, get_puck_center, cart_speed
+from state_agent.features import SoccerFeatures, cart_location, get_puck_center, cart_speed, extract_all_features
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 font = ImageFont.load_default()
 
 
 # tried to break this into multiple classes, but Ray doesn't seem to work when there's a subclass used
-@ray.remote
-class Rollout:
+class Match:
+
+    pystk_init = False
+
     def __init__(self, screen_width, screen_height, hd=True, track='lighthouse', render=True, frame_skip=1,
-                 mode="track", players=[(0, False, "tux")], num_karts=1):
+                 mode="track", players=[(0, False, "tux")], num_karts=1, **kwargs):
         # Init supertuxkart
         if not render:
             config = pystk.GraphicsConfig.none()
@@ -30,7 +34,10 @@ class Rollout:
             config = pystk.GraphicsConfig.ld()
         config.screen_width = screen_width
         config.screen_height = screen_height
-        pystk.init(config)
+
+        if Match.pystk_init == False:
+            pystk.init(config)
+            Match.pystk_init = True
 
         self.frame_skip = frame_skip
         self.render = render
@@ -140,7 +147,23 @@ class Rollout:
             data.append(agent_data)
         return data
 
-soccer_feature_extractor = SoccerFeatures
+    def shutdown(self):
+        self.race.stop()
+        del self.race
+
+@ray.remote
+class Rollout():
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.match = Match(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs) -> Any:
+        return self.match(*args, **kwargs)
+
+    def initialize_state(self, *args, **kwargs):
+        self.match.initialize_state(*args, **kwargs)
+
+soccer_feature_extractor = extract_all_features
 
 def show_video_soccer(data, fps=30):
     import imageio
@@ -160,23 +183,23 @@ def show_video_soccer(data, fps=30):
         image_to_edit = ImageDraw.Draw(img)
         image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)))
         image_to_edit.text((10, 20), "speed: {}".format(speed))
-        image_to_edit.text((10, 30), "steering: {}".format(action.steer))
-        image_to_edit.text((10, 40), "drift: {}".format(action.drift))
-        image_to_edit.text((10, 50), "brake: {}".format(action.brake))
+        image_to_edit.text((10, 30), "steering: {}".format(float(action.steer)))
+        image_to_edit.text((10, 40), "drift: {}".format(float(action.drift)))
+        image_to_edit.text((10, 50), "brake: {}".format(float(action.brake)))
         image_to_edit.text((10, 60), "distance: {}".format(distance))
-        image_to_edit.text((10, 70), "angle puck: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)))         
-        image_to_edit.text((10, 80), "angle goal: {}".format(soccer_feature_extractor.select_player_goal_angle(feature)))         
+        image_to_edit.text((10, 70), "angle puck: {}".format(feature.select_player_puck_angle()))
+        image_to_edit.text((10, 80), "angle goal: {}".format(feature.select_player_goal_angle()))
         images.append(np.array(img))
 
     for img, action, distance, feature, speed in zip(frames_map, actions, distances, features, speeds):
         image_to_edit = ImageDraw.Draw(img)
         image_to_edit.text((10, 10), "accel: {}".format(float(action.acceleration)), fill=(0, 0, 0))
         image_to_edit.text((10, 20), "speed: {}".format(speed), fill=(0, 0, 0))
-        image_to_edit.text((10, 30), "steering: {}".format(action.steer), fill=(0, 0, 0))
-        image_to_edit.text((10, 40), "drift: {}".format(action.drift), fill=(0, 0, 0))
-        image_to_edit.text((10, 50), "brake: {}".format(action.brake), fill=(0, 0, 0))
+        image_to_edit.text((10, 30), "steering: {}".format(float(action.steer)), fill=(0, 0, 0))
+        image_to_edit.text((10, 40), "drift: {}".format(float(action.drift)), fill=(0, 0, 0))
+        image_to_edit.text((10, 50), "brake: {}".format(float(action.brake)), fill=(0, 0, 0))
         image_to_edit.text((10, 60), "distance: {}".format(distance), fill=(0, 0, 0))
-        image_to_edit.text((10, 70), "angle diff: {}".format(soccer_feature_extractor.select_player_puck_angle(feature)), fill=(0, 0, 0))                     
+        image_to_edit.text((10, 70), "angle diff: {}".format(feature.select_player_puck_angle()), fill=(0, 0, 0))
         map_images.append(np.array(img))
 
 
@@ -190,10 +213,10 @@ def show_video_soccer(data, fps=30):
 
 def show_graph(data):
 
-    steer = [t['action'].steer for t in data]
-    drift = [t['action'].drift for t in data]
-    accel = [t['action'].acceleration for t in data]
-    brake = [t['action'].brake for t in data]
+    steer = [float(t['action'].steer) for t in data]
+    drift = [float(t['action'].drift) for t in data]
+    accel = [float(t['action'].acceleration) for t in data]
+    brake = [float(t['action'].brake) for t in data]
     fig, (steering_p, drift_p, accel_p, brake_p) = plt.subplots(1, 4)
     steering_p.plot(steer)
     steering_p.set_title("Steering")
@@ -221,16 +244,18 @@ def show_steering_graph(data):
     plt.plot(steer)
     plt.show()
 
-viz_rollout_soccer = None
 def run_soccer_agent(agent, rollout=None, **kwargs):
-    global viz_rollout_soccer
-    if not viz_rollout_soccer:
-        viz_rollout_soccer = Rollout.remote(400, 300, mode="soccer")
-    if not rollout:
-        rollout = viz_rollout_soccer
-    data = ray.get(rollout.__call__.remote(agent, **kwargs))
-    show_video_soccer(data)
-    show_graph(data)
+    data = None
+    match = Match(400, 300, mode="soccer")
+    try:
+        data = match.__call__(agent, **kwargs)
+        show_video_soccer(data)
+        show_graph(data)
+    except Exception as e:
+        print_exc()
+    finally:
+        match.shutdown()
+
     return data
 
 viz_rollouts = None

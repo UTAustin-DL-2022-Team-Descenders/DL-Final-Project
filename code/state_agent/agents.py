@@ -1,45 +1,38 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/23/2022
 
+from typing import Any, List, Optional
 import torch
 import copy
+import os.path
 from functools import reduce
-from state_agent.features import SoccerFeatures, MAX_SPEED
+from state_agent.planners import PlayerPuckGoalFineTunedPlannerActorNetwork, PlayerPuckGoalPlannerActorNetwork
+from state_agent.planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
+from state_agent.actors import BaseActor
+from state_agent.actors import DriftActorNetwork, SpeedActorNetwork, SteeringActorNetwork
+from state_agent.core_utils import save_model, load_model
+from state_agent.actors import BaseActorNetwork, Action
+from state_agent.features import SoccerFeatures, MAX_SPEED, extract_all_features
 from state_agent.core_utils import DictObj
 
-class Action:
-
-    def __init__(self):
-        self.acceleration = torch.Tensor([0.0])
-        self.steer = torch.Tensor([0.0])
-        self.drift = torch.Tensor([False])
-        self.nitro = torch.Tensor([False])
-        self.brake = torch.Tensor([False])
-        self.fire = torch.Tensor([False])
-
-    def detach(self):
-        self.acceleration = float(self.acceleration.detach().numpy()) if hasattr(self.acceleration, "detach") else self.acceleration
-        self.steer = float(self.steer.detach().numpy()) if hasattr(self.steer, "detach") else self.steer
-        self.drift = bool(self.drift.detach().numpy()) if hasattr(self.drift, "detach") else self.drift
-        self.nitro = bool(self.nitro.detach().numpy()) if hasattr(self.nitro, "detach") else self.nitro
-        self.brake = bool(self.brake.detach().numpy()) if hasattr(self.brake, "detach") else self.brake
-        self.fire = bool(self.fire.detach().numpy()) if hasattr(self.fire, "detach") else self.fire
 class BaseAgent:
 
     MAX_STATE = 5
 
-    def __init__(self, *args, extractor=None, train=False, target_speed=None, **kwargs):
-        self.actors = args
+    def __init__(self, *args, extractor:Any=None, train=False, target_speed=None, **kwargs):
+        self.actors = list(args)
         self.train = train
         self.extractor = extractor
         self.target_speed = target_speed
         self.reset()
     
     def invoke_actor(self, actor, action, f):
-        actor(action, torch.as_tensor(actor.select_features(f)).view(-1), train=self.train, extractor=f)
+        x = torch.as_tensor(actor.select_features(f)).view(-1)
+        actor(action, x, train=self.train, extractor=f)
 
     def invoke_actors(self, action, f):
         [self.invoke_actor(actor, action, f) for actor in self.actors]
+        return action
 
     def get_feature_vector(self, kart_info, soccer_state, team_num, **kwargs):
         return self.extractor(
@@ -64,7 +57,7 @@ class BaseAgent:
         if len(self.last_state) > self.MAX_STATE:
             self.last_state.pop(0)
 
-        self.invoke_actors(action, f)         
+        action = self.invoke_actors(action, f)
 
         action.detach()
         self.last_output=action
@@ -83,6 +76,8 @@ class BaseAgent:
             actor_model_load_name = f"{self.actors[actor_i].model_name}_{actor_i}"
             actor.load_model(actor_model_load_name)
 
+# NOTE: This Agent is used for training purposes. It has some utilities for post processing the acceleration for example.
+# It is not used for the final evaluations.
 class Agent(BaseAgent):
 
     """
@@ -90,7 +85,115 @@ class Agent(BaseAgent):
     """
 
     def __init__(self, *args, target_speed=MAX_SPEED, **kwargs):
-        super().__init__(*args, extractor=SoccerFeatures, target_speed=target_speed, **kwargs)
+        super().__init__(*args, extractor=extract_all_features, target_speed=target_speed, **kwargs)
+
+        self.accel = torch.tensor(kwargs['accel'] if 'accel' in kwargs else 1.0)
+        self.use_accel = not reduce(lambda x, y: x or hasattr(y, "acceleration"), self.actors, False)
+
+
+    def invoke_actors(self, action, f):
+        super().invoke_actors(action, f)
+
+        # NOTE: this is only called for TRAINING agents, the Evaluation agent will not post-process!
+        if self.use_accel:
+            action.acceleration = self.accel
+
+        return action
+
+class ComposedAgentNetwork(torch.nn.Module):
+
+    """
+    The composited agent network is a torch module that runs a sequence of BaseActorNetworks
+    """
+
+    def __init__(self,
+    steering_actor: SteeringActorNetwork,
+    speed_actor: SpeedActorNetwork,
+    drift_actor: DriftActorNetwork,
+    planner_actor: PlayerPuckGoalPlannerActorNetwork,
+    ft_planner_actor: PlayerPuckGoalFineTunedPlannerActorNetwork,
+    ) -> None:
+        super().__init__()
+
+        self.steering_actor = steering_actor
+        self.speed_actor = speed_actor
+        self.drift_actor = drift_actor
+        self.planner_actor = planner_actor
+        self.ft_planner_actor = ft_planner_actor
+
+
+    def forward(self, action: Action, f: SoccerFeatures, actors_to_execute: List[bool]):
+
+        # the struggle is real with TorchScript.. you can't call helper methods that use nn.Module so these lines have to be duplicated
+
+        if self.planner_actor is not None and actors_to_execute[0]:
+            x = torch.as_tensor(self.planner_actor.select_features(f)).view(-1)
+            self.planner_actor(action, x, f)
+
+        if self.ft_planner_actor is not None and actors_to_execute[1]:
+            x = torch.as_tensor(self.ft_planner_actor.select_features(f)).view(-1)
+            self.ft_planner_actor(action, x, f)
+
+        if self.steering_actor is not None and actors_to_execute[2]:
+            x = torch.as_tensor(self.steering_actor.select_features(f)).view(-1)
+            self.steering_actor(action, x, f)
+
+        if self.speed_actor is not None and actors_to_execute[3]:
+            x = torch.as_tensor(self.speed_actor.select_features(f)).view(-1)
+            self.speed_actor(action, x, f)
+
+        if self.drift_actor is not None and actors_to_execute[4]:
+            x = torch.as_tensor(self.drift_actor.select_features(f)).view(-1)
+            self.drift_actor(action, x, f)
+
+        return action
+
+class ComposedAgent(BaseAgent):
+
+    """
+    # NOTE: The composed agent is agent used for evaluations and loads a single agent network of actors networks, for the purpose
+    #  of executing them all as one torch module
+    """
+
+    def __init__(self,
+        agent_net: Optional[ComposedAgentNetwork] = None,
+        target_speed=MAX_SPEED,
+        use_speed=True,
+        use_drift=True,
+        use_steering=True,
+        use_planner=True,
+        use_finetuned_planner=True
+    ):
+
+        planner_network = PlayerPuckGoalPlannerActor().actor_net
+
+        super().__init__(*[], extractor=extract_all_features, target_speed=target_speed)
+        self.agent_net = agent_net if agent_net else ComposedAgentNetwork(
+            SteeringActorNetwork(),
+            SpeedActorNetwork(),
+            DriftActorNetwork(),
+            planner_network,
+            PlayerPuckGoalFineTunedPlannerActorNetwork(mode=PlayerPuckGoalFineTunedPlannerActorNetwork.MODE_SPEED)
+        )
+        self.actors_to_execute = [
+            # order matters! so the execute list in forward()
+            use_planner,
+            use_finetuned_planner,
+            use_steering,
+            use_speed,
+            use_drift
+        ]
+
+    def save_models(self, model_name, use_jit=False):
+        save_model(self.agent_net, model_name, save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
+
+    def load_models(self, model_name, use_jit=False):
+        self.agent_net = load_model(model_name, model=self.agent_net, load_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
+        return self.agent_net
+
+    def invoke_actors(self, action: Action, f: SoccerFeatures):
+        # return the action from the net directly
+        return self.agent_net(action, f, self.actors_to_execute)
 
 class TrainingAgent(BaseAgent):
 
