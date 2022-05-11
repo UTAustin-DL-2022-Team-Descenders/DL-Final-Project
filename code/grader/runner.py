@@ -268,16 +268,12 @@ class Match:
         if os.path.exists('./stat.csv') or not os.path.exists('./stats.csv'):
             with open('./stat.csv', 'a') as f:
                 # Figure out which team our state_agent was assigned to
-                if hasattr(team1._team, 'slowest_act_time'):
-                    # save the cart type and target speed
-                    for j in range(len(team1._team.team_kart_list)):
-                        f.write(f"{team1._team.team_kart_list[j]}, {team1._team.agent_target_speed_list[j]:.1f}, {team1._team.use_fine_tuned_planner[j]:.1f},")
-                    # save the slowest acting times
-                    f.write(str(team1._team.slowest_act_time) + ',')
-                else:
-                    for j in range(len(team2._team.team_kart_list)):
-                        f.write(f"{team2._team.team_kart_list[j]}, {team2._team.agent_target_speed_list[j]:.1f}, {team2._team.use_fine_tuned_planner[j]:.1f},")
-                    f.write(str(team2._team.slowest_act_time) + ',')
+                team = team1 if hasattr(team1._team, 'slowest_act_time') else team2
+                # save the cart type and target speed
+                for j in range(len(team._team.team_kart_list)):
+                    f.write(f"{team._team.team_kart_list[j]}, {team._team.agent_target_speed_list[j]:.1f}, {team._team.use_fine_tuned_planner[j]:.1f},")
+                # save the slowest acting times
+                f.write(str(team._team.slowest_act_time) + ',')
             os.rename('./stat.csv', 'stats.csv')  # hack to get around multiple slowest_act_time
 
         return state.soccer.score
