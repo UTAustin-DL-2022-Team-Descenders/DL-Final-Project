@@ -1,6 +1,6 @@
 import pandas as pd
 
-df = pd.read_csv('stat.csv', header=None)
+df = pd.read_csv('stats copy.csv', header=None)
 
 # 6 [
 # 10 ]

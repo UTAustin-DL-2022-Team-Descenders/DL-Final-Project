@@ -22,12 +22,11 @@ cart without any controller logic or post-processing.
 
 The agent extracts different features from the current and past states of the 
 environment and feeds each set of features to the respective actor 
-(`SteeringActor|steer_net.pt`, `DriftActor|drift_net.pt`, and 
-`SpeedActor|speed_net.pt`), who then calculate the particular actions given 
-the features. The Planner (`planner_net.pt`) then identifies the best policy
+(`SteeringActor`, `DriftActor`, and `SpeedActor`), who then calculate the particular actions given 
+the features. The Planner then identifies the best policy
 action to take given a small set of pre-trained scenarios (e.g., head to the puck,
 move the puck to the goal, back up if stuck against a wall). The actions are
-then fed to the Fine Tuned Planner (`ft_palnner_net.pt`) which filters the
+then fed to the Fine Tuned Planner which filters the
 actions to better act in the environment.
 
 The Action Networks that generate the policy actions are all 2 layer linear
@@ -45,6 +44,7 @@ the steering action network to produce outputs from -1 to 1.
 which actuate the cart by taking policy decision from the planner actors.
 - `agents.py` - includes the agents, which are wrapers of the actors to allow them to act
 in the environment.
+- `agent_net.pt` - JIT script containing agent
 - `core_utils.py` - a subset of `utils_agent` the `state_agent` uses for the grader
 - `features.py` - contains the features that are extracted from the state of the 
 environment and used in the action calculations
@@ -55,6 +55,8 @@ output speed and steering offsets for the Drift, Steering and Speed Actors to pr
 - `remote.py` - copy of the tournament `remote` used in development to train the `state_agent`
 - `rewards.py` - rewards for the policy gradient algorithm
 - `runner.py` - copy of the tournament `runner` used in development to train the `state_agent`
+- `team.py` - team object used to compete in tournament
+- `test_team.py` - team object used for testing agent in tournament
 - `train_arena.ipynb` - main tool used to train the actors using policy gradients
 - `train_policy_gradient.py` - contains the main policy gradient algorithm used
 to train the `state_agent`
@@ -78,13 +80,3 @@ particular movements: moving backwards, moving to the puck, scoring a goal, etc.
 movements from a entire match. Used by `train_imitation_categorize_movements`.
 - `train_imitation_improved.py` - improvement of `train_imitation` by Hart including bug fixes and batch gradient descent.
 - `train_imitation_utils.py` - utilities used by `train_imitation_improved`
-
-### JIT Scripts
-Files listed below are the JIT Scripts for each actor that work in unison to act 
-in the environment.
-
-- `drift_net.pt`
-- `ft_planner_net.pt`
-- `planner_net.pt`
-- `speed_net.pt`
-- `steer_net.pt`
