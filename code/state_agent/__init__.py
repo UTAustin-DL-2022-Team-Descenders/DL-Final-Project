@@ -15,9 +15,9 @@ LEGAL_KART_NAMES = ['adiumy', 'amanda', 'beastie', 'emule', 'gavroche', 'gnu', '
 # The length of these lists must match num_of_players (== 2)
 #TEAM_KART_LIST = ['hexley', 'konqi']
 #AGENT_TARGET_SPEED = [19.0, 16.5]
-TEAM_KART_LIST = ['konqi', 'hexley']
-AGENT_TARGET_SPEED = [14.5, 19.0]
-USE_FINE_TUNED_PLANNER = [True, True]
+TEAM_KART_LIST = []
+AGENT_TARGET_SPEED = []
+USE_FINE_TUNED_PLANNER = []
 class Team():
     agent_type = 'state'
     def __init__(self, num_of_players=2, train=False, time_act_func=False,
@@ -35,12 +35,17 @@ class Team():
         # Fine tuned planner settings
         self.use_fine_tuned_planner = USE_FINE_TUNED_PLANNER
 
+        # Add random fine tune if one wasn't given for all num_players
+        for i in range(self.num_players - len(self.use_fine_tuned_planner)):
+            use_fine_tuned = bool(round(random.uniform(0, 1)))
+            self.use_fine_tuned_planner.append(use_fine_tuned)
+
         # List of target agent speeds
         self.agent_target_speed_list = agent_target_speed_list if agent_target_speed_list else AGENT_TARGET_SPEED
 
         # Add random agent target speeds if one wasn't given for all num_players
         for i in range(self.num_players - len(self.agent_target_speed_list)):
-            agent_target_speed = random.uniform(12, 21)
+            agent_target_speed = round(random.uniform(0, 20)) / 2 + 12.0 # (12, 22, 0.5)
             self.agent_target_speed_list.append(agent_target_speed)
 
         # List of karts on this team
@@ -83,12 +88,10 @@ class Team():
             self.agents = [
                 self.create_composed_network("agent_net", # use a different name for agent 1 vs agent 2 based on the configured actors
                     target_speed=self.agent_target_speed_list[0],
-                    use_steer=False,
                     use_finetuned_planner=self.use_fine_tuned_planner[0]
                 ),
                 self.create_composed_network("agent_net",
                     target_speed=self.agent_target_speed_list[1],
-                    use_steer=False,
                     use_finetuned_planner=self.use_fine_tuned_planner[1]
                 )
             ]
