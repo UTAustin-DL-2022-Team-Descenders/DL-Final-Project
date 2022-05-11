@@ -14,10 +14,8 @@ if [[ $n -lt 1 ]]; then
   exit 1
 fi
 
-# Remove grader.txt if it already exists
-if [[ -f grader.txt ]]; then
-  rm grader.txt
-fi
+# don't delete the file, add token to show start of a run
+echo " << NEW TESTING RUN STARTED >> " >> grader.txt
 
 # Redirect grader outputs into grader.txt
 for (( i=1; i<=$n; i++  ))
