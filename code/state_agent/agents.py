@@ -1,11 +1,12 @@
 # Author: Jose Rojas (jlrojas@utexas.edu)
 # Creation Date: 4/23/2022
 
-from typing import Any, List, Tuple
+from typing import Any, List, Optional
 import torch
 import copy
 import os.path
 from functools import reduce
+from state_agent.planners import PlayerPuckGoalFineTunedPlannerActorNetwork, PlayerPuckGoalPlannerActorNetwork
 from state_agent.planners import PlayerPuckGoalPlannerActor, PlayerPuckGoalFineTunedPlannerActor
 from state_agent.actors import BaseActor
 from state_agent.actors import DriftActorNetwork, SpeedActorNetwork, SteeringActorNetwork
@@ -104,7 +105,8 @@ class ComposedAgentNetwork(torch.nn.Module):
     steering_actor: SteeringActorNetwork,
     speed_actor: SpeedActorNetwork,
     drift_actor: DriftActorNetwork,
-    planner_actor: PlayerPuckGoalPlannerActor
+    planner_actor: PlayerPuckGoalPlannerActorNetwork,
+    ft_planner_actor: PlayerPuckGoalFineTunedPlannerActorNetwork,
     ) -> None:
         super().__init__()
 
@@ -112,26 +114,30 @@ class ComposedAgentNetwork(torch.nn.Module):
         self.speed_actor = speed_actor
         self.drift_actor = drift_actor
         self.planner_actor = planner_actor
-        #self.ft_planner_actor = ft_planner_actor
+        self.ft_planner_actor = ft_planner_actor
 
 
-    def forward(self, action: Action, f: SoccerFeatures):
+    def forward(self, action: Action, f: SoccerFeatures, actors_to_execute: List[bool]):
 
         # the struggle is real with TorchScript.. you can't call helper methods that use nn.Module so these lines have to be duplicated
 
-        if self.planner_actor is not None:
+        if self.planner_actor is not None and actors_to_execute[0]:
             x = torch.as_tensor(self.planner_actor.select_features(f)).view(-1)
             self.planner_actor(action, x, f)
 
-        if self.steering_actor is not None:
+        if self.ft_planner_actor is not None and actors_to_execute[1]:
+            x = torch.as_tensor(self.ft_planner_actor.select_features(f)).view(-1)
+            self.ft_planner_actor(action, x, f)
+
+        if self.steering_actor is not None and actors_to_execute[2]:
             x = torch.as_tensor(self.steering_actor.select_features(f)).view(-1)
             self.steering_actor(action, x, f)
 
-        if self.speed_actor is not None:
+        if self.speed_actor is not None and actors_to_execute[3]:
             x = torch.as_tensor(self.speed_actor.select_features(f)).view(-1)
             self.speed_actor(action, x, f)
 
-        if self.drift_actor is not None:
+        if self.drift_actor is not None and actors_to_execute[4]:
             x = torch.as_tensor(self.drift_actor.select_features(f)).view(-1)
             self.drift_actor(action, x, f)
 
@@ -144,14 +150,34 @@ class ComposedAgent(BaseAgent):
     #  of executing them all as one torch module
     """
 
-    def __init__(self, agent_net: ComposedAgentNetwork = None, target_speed=MAX_SPEED, **kwargs):  # type: ignore
-        super().__init__(*[], extractor=extract_all_features, target_speed=target_speed, **kwargs)
+    def __init__(self,
+        agent_net: Optional[ComposedAgentNetwork] = None,
+        target_speed=MAX_SPEED,
+        use_speed=True,
+        use_drift=True,
+        use_steering=True,
+        use_planner=True,
+        use_finetuned_planner=True
+    ):
+
+        planner_network = PlayerPuckGoalPlannerActor().actor_net
+
+        super().__init__(*[], extractor=extract_all_features, target_speed=target_speed)
         self.agent_net = agent_net if agent_net else ComposedAgentNetwork(
             SteeringActorNetwork(),
             SpeedActorNetwork(),
             DriftActorNetwork(),
-            PlayerPuckGoalPlannerActor()
+            planner_network,
+            PlayerPuckGoalFineTunedPlannerActorNetwork(mode=PlayerPuckGoalFineTunedPlannerActorNetwork.MODE_SPEED)
         )
+        self.actors_to_execute = [
+            # order matters! so the execute list in forward()
+            use_planner,
+            use_finetuned_planner,
+            use_steering,
+            use_speed,
+            use_drift
+        ]
 
     def save_models(self, model_name, use_jit=False):
         save_model(self.agent_net, model_name, save_path=os.path.abspath(os.path.dirname(__file__)), use_jit=use_jit)
@@ -162,7 +188,7 @@ class ComposedAgent(BaseAgent):
 
     def invoke_actors(self, action: Action, f: SoccerFeatures):
         # return the action from the net directly
-        return self.agent_net(action, f)
+        return self.agent_net(action, f, self.actors_to_execute)
 
 class BaseTeam:
     agent_type = 'state'
