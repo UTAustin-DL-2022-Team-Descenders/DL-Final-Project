@@ -267,6 +267,9 @@ class Match:
         # using two files as a hack to save the first match info of the series
         if os.path.exists('./stat.csv') or not os.path.exists('./stats.csv'):
             with open('./stat.csv', 'a') as f:
+                # block file from being opened in the event multiple processes are running
+                fd = os.open('./stat.csv', os.O_RDWR)
+                os.set_blocking(fd, True)
                 # Figure out which team our state_agent was assigned to
                 team = team1 if hasattr(team1._team, 'slowest_act_time') else team2
                 # save the cart type and target speed
@@ -274,6 +277,10 @@ class Match:
                     f.write(f"{team._team.team_kart_list[j]}, {team._team.agent_target_speed_list[j]:.1f}, {team._team.use_fine_tuned_planner[j]:.1f},")
                 # save the slowest acting times
                 f.write(str(team._team.slowest_act_time) + ',')
+                f.flush()
+
+                os.set_blocking(fd, False)
+                os.close(fd)
             os.rename('./stat.csv', 'stats.csv')  # hack to get around multiple slowest_act_time
 
         return state.soccer.score

@@ -132,7 +132,11 @@ class Grader:
                     d = msg[msg.index('locations') + len('locations '):]
                     txt_to_file = f'{a}, {b}, {c}, {d}'
                     with open('./stats.csv', 'a') as ff:
+                        fd = os.open('./stats.csv', os.O_RDWR)
+                        os.set_blocking(fd, True)
                         ff.write(f'{txt_to_file}, {f.__doc__}\n')
+                        ff.flush()
+                        os.set_blocking(fd, False)
                     os.rename('./stats.csv', 'stat.csv')  # hack to save the first match info of the series
 
                 if not f.extra_credit:
