@@ -13,8 +13,8 @@ LEGAL_KART_NAMES = ['adiumy', 'amanda', 'beastie', 'emule', 'gavroche', 'gnu', '
 
 # Fix Team's player karts or Agent target speeds. Randomized if not given
 # The length of these lists must match num_of_players (== 2)
-TEAM_KART_LIST = ['konqi', 'hexley']
-AGENT_TARGET_SPEED = [19.0, 15.5]
+TEAM_KART_LIST = ['hexley', 'sara_the_wizard']
+AGENT_TARGET_SPEED = [16.0, 19.5]
 USE_FINE_TUNED_PLANNER = [True, True]
 
 class Team():
