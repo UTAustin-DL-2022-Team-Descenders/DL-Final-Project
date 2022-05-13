@@ -17,6 +17,12 @@ from state_agent.features import SoccerFeatures, cart_location, get_puck_center,
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 font = ImageFont.load_default()
 
+import quaternion
+
+def euler_to_quaternion(angles):
+    orientation = quaternion.from_euler_angles(angles)
+    (w, x, y, z) = quaternion.as_float_array(orientation)
+    return (x, y, z, w)
 
 # tried to break this into multiple classes, but Ray doesn't seem to work when there's a subclass used
 class Match:
@@ -36,7 +42,12 @@ class Match:
         config.screen_height = screen_height
 
         if Match.pystk_init == False:
-            pystk.init(config)
+            try:
+                pystk.init(config)
+            except:
+                pystk.clean()
+                pystk.init(config)
+
             Match.pystk_init = True
 
         self.frame_skip = frame_skip
@@ -58,7 +69,7 @@ class Match:
         self.race = pystk.Race(race_config)
         self.race.start()
 
-    def initialize_state(self, world_info, randomize=False, ball_location=None, ball_velocity=None, player_location=None, **kwargs):
+    def initialize_state(self, world_info, randomize=False, ball_location=None, ball_velocity=None, player_location=None, player_orientation=[0, 0, 0, 1.0], **kwargs):
         if self.mode == "track":
             self.track_info = track_info = pystk.Track()
             track_info.update()
@@ -67,8 +78,8 @@ class Match:
             ball_velocity = ball_velocity if ball_velocity else [0, 0]
             world_info.set_ball_location((ball_location[0], 1, ball_location[1]),
                                         (ball_velocity[0], 0, ball_velocity[1]))
-            if player_location:
-                world_info.set_kart_location(0, player_location, [0, 0, 0, 1.0], 0)
+            if player_location :
+                world_info.set_kart_location(0, player_location, player_orientation, 0)
 
     def agent_data(self, world_info):
         # Gather world information
@@ -246,7 +257,7 @@ def show_steering_graph(data):
 
 def run_soccer_agent(agent, rollout=None, **kwargs):
     data = None
-    match = Match(400, 300, mode="soccer")
+    match = Match(400, 300, mode="soccer") if rollout is None else Match(**rollout)
     try:
         data = match.__call__(agent, **kwargs)
         show_video_soccer(data)
@@ -262,10 +273,10 @@ viz_rollouts = None
 def rollout_many(many_agents, **kwargs):
     global viz_rollouts
     if not viz_rollouts:
-        viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(4)]
+        viz_rollouts = [Rollout.remote(50, 50, hd=False, render=False, frame_skip=5, mode="soccer") for i in range(6)]
     ray_data = []
     for i, agent in enumerate(many_agents):
-         ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )
+        ray_data.append(viz_rollouts[i % len(viz_rollouts)].__call__.remote(agent, **kwargs) )
     return ray.get(ray_data)
 
 def dummy_agent(**kwargs):

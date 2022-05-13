@@ -54,23 +54,27 @@ class Classifier(BaseActor):
 
 class HeadToPuckClassifier(Classifier):
 
-    FEATURES = [SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE]
+    FEATURES = [
+        SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE,
+        SoccerFeaturesLabels.PLAYER_PUCK_ANGLE
+    ]
 
     def __init__(self, range, **kwargs):
         # inputs: 
         #   player-puck distance
+        #   player-puck- angle
         #  
         # outputs:
         #   confidence score (0-1)
-        super().__init__(self.FEATURES, range, n_hidden=1, bias=False, **kwargs)
+        super().__init__(self.FEATURES, range, n_hidden=5, bias=True, **kwargs)
              
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
 
         selected_features_curr, selected_features_next = self.get_selected_features(selected_features_curr, selected_features_next)
 
-        (c_pp_dist) = selected_features_curr
+        (c_pp_dist, c_pp_angle) = selected_features_curr
         # return the boolean value as the 'label' for classification
-        return c_pp_dist >= 0
+        return c_pp_dist >= 0 and np.abs(c_pp_angle) < 0.25
 
         
 class PuckToGoalClassifier(Classifier):
@@ -122,7 +126,34 @@ class RecoverTowardsPuck(Classifier):
 
         # return the boolean value as the 'label' for classification
         return puck_stuck
-        
+
+class TurnAroundTowardsPuck(Classifier):
+
+    FEATURES = [
+        SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE,
+        SoccerFeaturesLabels.PLAYER_PUCK_ANGLE
+    ]
+
+    def __init__(self, range, action_net=None, train=None, **kwargs):
+        # inputs:
+        #   player-puck distance
+        #
+        # outputs:
+        #   confidence score (0-1)
+        super().__init__(self.FEATURES, range, n_hidden=5, bias=True, **kwargs)
+
+    def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
+
+        selected_features_curr, selected_features_next = self.get_selected_features(selected_features_curr, selected_features_next)
+
+        (c_pp_dist, c_pp_angle) = selected_features_curr
+
+        # puck is behind!
+        puck_stuck = (np.abs(c_pp_angle) >= 0.25 and c_pp_dist >= 10.0)
+
+        # return the boolean value as the 'label' for classification
+        return puck_stuck
+
 class PlayerPuckGoalPlannerActorNetwork(BaseActorNetwork):
 
     def __init__(self, classifiers: List[ClassifierNetwork], label_index: int, number_features: int) -> None:
@@ -139,7 +170,8 @@ class PlayerPuckGoalPlannerActorNetwork(BaseActorNetwork):
 
     def forward(self, action: Action, f: torch.Tensor, extractor: SoccerFeatures):
         outputs = self.call(action, f, extractor.selection_planner_bias())
-        self.set_outgoing_features(outputs, extractor)
+        if not self.training:
+            self.set_outgoing_features(outputs, extractor)
         return outputs
 
     def set_outgoing_features(self, outputs: torch.Tensor, extractor: SoccerFeatures):
@@ -226,6 +258,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
     CLASSIFIER_HEAD_TO_PUCK = 0
     CLASSIFIER_PUCK_TO_GOAL = 1
     CLASSIFIER_STUCK_AGAINST_WALL = 2
+    CLASSIFIER_TURN_AROUND_TO_PUCK = 3
 
     OUT_FEATURE_DELTA_ANGLE = 0,
     OUT_FEATURE_DELTA_SPEED = 1,
@@ -236,7 +269,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         classifiers = [
             HeadToPuckClassifier,
             PuckToGoalClassifier,
-            RecoverTowardsPuck
+            TurnAroundTowardsPuck
         ]
 
         self.ranges = ranges = []
@@ -258,7 +291,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
 
         super().__init__(actor_net, train=train, sample_type="bernoulli")
-        self.classifiers = classifiers
+        self.classifiers: List[Classifier] = classifiers
 
         self.model_path = os.path.join(os.path.abspath(os.path.dirname(__file__)),
                                        "agents/subnets/modules", "planner")
@@ -270,8 +303,9 @@ class PlayerPuckGoalPlannerActor(BaseActor):
     def this_actor_net(self) -> PlayerPuckGoalPlannerActorNetwork:
         return self.actor_net # type: ignore
 
-    def copy(self, action_net):
-        return self.__class__(action_net, train=self.train)
+    def copy(self, actor_net):
+        output = self.__class__(actor_net, train=self.train)
+        return output
 
     def __call__(self, action, f, extractor:SoccerFeatures, train=False, **kwargs):
         
@@ -309,7 +343,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         # Bernoulli calls BCELossWithLogits using the actions as the 'labels', so using the rewards helps the
         # planner to classify these cases far more easily than the typical policy gradient approach.
         
-        rewards = [c.reward(action, c.extract_greedy_action(action, f), f, None) for idx, c in enumerate(self.classifiers)]
+        rewards = [c.reward(action, c.extract_greedy_action(action, f), f, None, 0) for idx, c in enumerate(self.classifiers)]
         return rewards
 
         #return [c.extract_greedy_action(action, f) for c in self.classifiers]

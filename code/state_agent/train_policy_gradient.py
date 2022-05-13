@@ -5,8 +5,10 @@ import copy
 import torch
 import numpy as np
 from torch.distributions import Bernoulli, Normal
+from state_agent.actors import Action
+from state_agent.features import SoccerFeatures
 from state_agent.rewards import SoccerBallDistanceObjective
-from state_agent.utils import rollout_many
+from state_agent.utils_agent import rollout_many
 from state_agent.core_utils import DictObj
 from state_agent.agents import Agent
 
@@ -62,7 +64,7 @@ class Context():
     
     def __init__(self) -> None:
         self.score = None
-        self.action_net = None
+        self.actor_net = None
         self.actions=None
         self.rewards=None
         self.trajectories=None
@@ -89,11 +91,13 @@ def reinforce(
 
     for epoch in range(n_epochs):
 
+        print(f"Performing trajectory rollouts: {n_trajectories}")
+
         # perform the rollouts 
-        actor.action_net.train()
+        actor.actor_net.train()
         agents = [configuration.agent(*slice_net, actor, train=True) for i in range(n_trajectories)]
         trajectories = rollout_many(agents, mode=configuration.mode, randomize=True, initializer=configuration.rollout_initializer, n_steps=n_steps)
-        actor.action_net.eval()
+        actor.actor_net.eval()
         
         context = reinforce_epoch(
             agents, 
@@ -123,7 +127,7 @@ def reinforce(
             epoch_post_process(actor, context)
 
 
-    return context.action_net if context else None
+    return context.actor_net if context else None
 
 def reinforce_epoch(
     agents,
@@ -138,18 +142,20 @@ def reinforce_epoch(
     context=None  
 ):
 
-    action_net = actor.action_net
-    best_action_net = copy.deepcopy(action_net)
-    best_actor = actor.copy(best_action_net)
+    actor_net = actor.actor_net
+    best_actor_net = copy.deepcopy(actor_net)
+    best_actor = actor.copy(best_actor_net)
     evaluator = configuration.evaluator
 
-    optim = torch.optim.Adam(action_net.parameters(), lr=1e-3)
+    print(list(actor_net.parameters()))
+
+    optim = torch.optim.Adam(actor_net.parameters(), lr=1e-3)
     
     T = reward_window if type(reward_window) == list else [reward_window]
     eps = 1e-2  
         
     # Roll out the policy, compute the Expectation
-    assert(actor.action_net == action_net)        
+    assert(actor.actor_net == actor_net)
     assert(best_actor.train == actor.train)
     assert(best_actor.reward_type == actor.reward_type)
 
@@ -169,13 +175,20 @@ def reinforce_epoch(
     # state features
     last_kart_state = []
     last_action = None
+
+    print("Collecting trajectories...")
+
+    extractor_base = SoccerFeatures(None, None) # no bias is used during training
+    action_base = Action()
+
     for num, trajectory in enumerate(trajectories):
         agent = agents[num % len(trajectories)] 
+        last_features = None
         for i in range(len(trajectory)):
             # Compute the features         
             feature_dict = configuration.extract_trajectory(trajectory[i], player_team, player_on_team)
             real_action = configuration.extract_action(trajectory[i], player_id)
-            extractor = agent.get_feature_vector(**feature_dict, last_state=last_kart_state, last_action=last_action)
+            extractor = agent.get_feature_vector(**feature_dict, last_state=last_kart_state, last_action=last_action, last_feature=last_features)
             state = actor.select_features(extractor)
             features.append( torch.as_tensor(state, dtype=torch.float32).view(-1) )
             real_actions.append( real_action)
@@ -183,10 +196,12 @@ def reinforce_epoch(
             if len(last_kart_state) > Agent.MAX_STATE:
                 last_kart_state.pop(0)
             last_action = real_action
+            last_features = extractor
 
     it = 0
 
-    action_net.train()
+    print("Collecting rewards...")
+    actor_net.train()
     for num, trajectory in enumerate(trajectories):
 
         loss = []
@@ -232,6 +247,7 @@ def reinforce_epoch(
 
     print(returns)
 
+    print("Updating gradient...")
     avg_expected_log_return = []
     for it in range(iterations):
         batch_ids = torch.randint(0, len(returns), (batch_size,))
@@ -239,7 +255,7 @@ def reinforce_epoch(
         batch_actions = actions[batch_ids]
         batch_features = features[batch_ids]
         
-        output = action_net(batch_features)
+        output = actor_net(action_base, batch_features, extractor_base)
         log_prob = actor.log_prob(output, actions=batch_actions)
 
         expected_log_return = (log_prob.squeeze()*batch_returns).mean()
@@ -252,7 +268,7 @@ def reinforce_epoch(
 
         outputs.extend(output.detach().tolist())
 
-    action_net.eval()
+    actor_net.eval()
 
     context = context if context else Context()
     context.actions=actions.detach().numpy()
@@ -283,7 +299,7 @@ def validate_epoch(
     print('epoch = %d dist = %s, best_dist = %s '%(epoch, score, best_score))
     
     if best_score is None or configuration.evaluator.is_better_than(score, best_score):
-        context.action_net = copy.deepcopy(actor.action_net)
+        context.actor_net = copy.deepcopy(actor.actor_net)
         context.score = score
         updated = True
         
