@@ -2,9 +2,9 @@ from typing import List
 import torch
 from .team import Team, LEGAL_KART_NAMES
 
-TEAM_KART_LIST = []
-AGENT_TARGET_SPEED = []
-USE_FINE_TUNED_PLANNER = []
+TEAM_KART_LIST = ['hexley', 'sara_the_wizard']
+AGENT_TARGET_SPEED = [16.0, 19.5]
+USE_FINE_TUNED_PLANNER = [True, True]
 
 class TestTeam(Team):
     agent_type = 'state'
