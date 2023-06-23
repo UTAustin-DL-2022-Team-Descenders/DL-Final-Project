@@ -200,6 +200,7 @@ def show_video_soccer(data, fps=30):
         image_to_edit.text((10, 60), "distance: {}".format(distance))
         image_to_edit.text((10, 70), "angle puck: {}".format(feature.select_player_puck_angle()))
         image_to_edit.text((10, 80), "angle goal: {}".format(feature.select_player_goal_angle()))
+        image_to_edit.text((10, 90), "cen. orien: {}".format(feature.select_center_orientation()))
         images.append(np.array(img))
 
     for img, action, distance, feature, speed in zip(frames_map, actions, distances, features, speeds):
@@ -211,6 +212,7 @@ def show_video_soccer(data, fps=30):
         image_to_edit.text((10, 50), "brake: {}".format(float(action.brake)), fill=(0, 0, 0))
         image_to_edit.text((10, 60), "distance: {}".format(distance), fill=(0, 0, 0))
         image_to_edit.text((10, 70), "angle diff: {}".format(feature.select_player_puck_angle()), fill=(0, 0, 0))
+        image_to_edit.text((10, 80), "cen. orien: {}".format(feature.select_center_orientation()), fill=(0, 0, 0))
         map_images.append(np.array(img))
 
 

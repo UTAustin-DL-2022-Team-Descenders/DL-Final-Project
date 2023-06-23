@@ -10,7 +10,7 @@ MIN_WALL_SPEED = 0.25
 TARGET_SPEED_FEATURE = 44
 PUCK_RADIUS = 1.75
 PUCK_RADIUS_TIGHT = 1.
-PUCK_MAX_STEER_OFFSET = 0.35 # 35~45 degrees when [0,1] maps to [0,np.pi]
+PUCK_MAX_STEER_OFFSET = 0.45 # 35~45 degrees when [0,1] maps to [0,np.pi]
 NEAR_WALL_OFFSET = 60.0
 NEAR_WALL_STD = 2.0
 
@@ -65,12 +65,14 @@ def cart_speed(kart_info):
     vel = cart_velocity(kart_info)
     return calculate_speed(kart_info, vel)
 
+def get_puck_speed(puck_state):
+    return puck_state.velocity
+
 def calculate_speed(kart_info, vel):
     dir = cart_direction(kart_info)
     sign = np.sign(np.dot(vel, dir))
     speed = np.linalg.norm(vel) * sign
     return speed
-
 
 def get_target_speed_feature(features):
     return features[TARGET_SPEED_FEATURE]
@@ -92,10 +94,12 @@ class SoccerFeatures:
         # Torch script doesn't like class instances !!!!
         self.PLAYER_PUCK_DISTANCE = 2
         self.PLAYER_WALL_DISTANCE = 3
+        self.PLAYER_GOAL_DISTANCE = 4
         self.PUCK_GOAL_DISTANCE = 5
         self.PLANNER_CHOICE = 6
         self.LAST_PLANNER_CHOICE = 7
         self.PLANNER_CHOICE_COUNT = 8
+        self.PLAYER_CENTER_ORIENTATION = 27
         self.PLAYER_REVERSE_STEER_ANGLE = 28
         self.PREVIOUS_SPEED = 29
         self.DELTA_SPEED_BEHIND = 30
@@ -119,7 +123,7 @@ class SoccerFeatures:
 
     def set_features(self, indices: List[int], values: torch.Tensor):
         for idx, f in zip(indices, values):
-            self.features[idx] = f.item()
+            self.features[idx] = f
 
     def select_indicies(self, indices: List[int]):
         return self.features[indices]
@@ -188,6 +192,9 @@ class SoccerFeatures:
     def selection_planner_bias(self):
         return self.planner_bias
 
+    def select_center_orientation(self):
+        return self.features[self.PLAYER_CENTER_ORIENTATION]
+
 # use this as a replacement for the class instance to grab the feature labels
 SoccerFeaturesLabels = SoccerFeatures(None, None) # type: ignore
 
@@ -208,6 +215,13 @@ def extract_all_features(kart_info, soccer_state, team_num, absolute=False, targ
     goal = get_team_goal_line_center(soccer_state, team_num)
     goal_line_length = np.linalg.norm(goal_line)
     goal_line_length_margin = goal_line_length - PUCK_RADIUS * 4
+
+    # orientation
+    vec_orientation = front - p
+    vec_orientation /= np.linalg.norm(vec_orientation + 0.00001)
+    vec_center = - p
+    vec_center /= np.linalg.norm(vec_center + 0.00001)
+    center_orientation = np.dot(vec_orientation, vec_center.T)
 
     # vectors
     vec_puck_p = p - puck
@@ -262,8 +276,11 @@ def extract_all_features(kart_info, soccer_state, team_num, absolute=False, targ
     features[0:2] = p - puck
     features[SoccerFeaturesLabels.PLAYER_WALL_DISTANCE] = (np.linalg.norm(p) - NEAR_WALL_OFFSET) / (NEAR_WALL_STD)
     features[SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE] =  pp_dist
+    features[SoccerFeaturesLabels.PLAYER_GOAL_DISTANCE] = np.linalg.norm(p - goal)
     features[SoccerFeaturesLabels.PUCK_GOAL_DISTANCE] = np.linalg.norm(puck - goal)
     features[SoccerFeaturesLabels.SPEED] = speed
+    #features[SoccerFeaturesLabels.PUCK_SPEED] = get_puck_speed(puck_state=soccer_state)
+    features[SoccerFeaturesLabels.PLAYER_CENTER_ORIENTATION] = center_orientation
     features[SoccerFeaturesLabels.PREVIOUS_ACCEL] = last_action.acceleration if last_action is not None else 0.0
     features[SoccerFeaturesLabels.PREVIOUS_STEER] = last_action.steer if last_action is not None else 0.0
     features[SoccerFeaturesLabels.PREVIOUS_SPEED] = previous_speed
@@ -279,7 +296,7 @@ def extract_all_features(kart_info, soccer_state, team_num, absolute=False, targ
     features[SoccerFeaturesLabels.PLAYER_PUCK_GOAL_ANGLE] = 0 #steer_puck_goal_angle_diff
     features[SoccerFeaturesLabels.PLAYER_PUCK_COUNTER_STEER_ANGLE] = steer_angle_puck_goal_counter_steer
     features[SoccerFeaturesLabels.PUCK_GOAL_ANGLE] = steer_angle_puck_goal
-    features[SoccerFeaturesLabels.PLAYER_REVERSE_STEER_ANGLE] = -0.5 * np.sign(steer_puck_angle_diff)
+    features[SoccerFeaturesLabels.PLAYER_REVERSE_STEER_ANGLE] = -1.0 * np.sign(steer_puck_angle_diff)
     features[SoccerFeaturesLabels.LAST_PLANNER_CHOICE] = last_feature.select_planner_choice() if last_feature else -1
     features[SoccerFeaturesLabels.PLANNER_CHOICE_COUNT] = last_feature.select_planner_count() * (last_feature.select_planner_choice() == last_feature.select_prev_planner_choice()) + 1 if last_feature else 0
 

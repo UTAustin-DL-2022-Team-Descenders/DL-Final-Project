@@ -14,8 +14,9 @@ from state_agent.rewards import MAX_DISTANCE, MAX_STEERING_ANGLE_REWARD, continu
 
 class ClassifierNetwork(torch.nn.Module):
 
-    def __init__(self, features, range, n_hidden, bias):
+    def __init__(self, id, features, range, n_hidden, bias):
         super().__init__()
+        self.id = torch.Tensor([id])
         self.action_net = BooleanClassifier(
                 n_inputs=len(features),                                          
                 n_hidden=n_hidden,
@@ -34,8 +35,9 @@ class ClassifierNetwork(torch.nn.Module):
     
 class Classifier(BaseActor):
 
-    def __init__(self, features, range, n_hidden=None, bias=None, classifier_net=None, train=None):
-        super().__init__(ClassifierNetwork(features, range, n_hidden=n_hidden, bias=bias) if classifier_net is None else classifier_net, train=train, sample_type="bernoulli")
+    def __init__(self, id, features, range, n_hidden=None, bias=None, classifier_net=None, train=None):
+        self.id = id
+        super().__init__(ClassifierNetwork(id, features, range, n_hidden=n_hidden, bias=bias) if classifier_net is None else classifier_net, train=train, sample_type="bernoulli")
         self.feature_indicies = features
 
     def get_actor_net(self) -> ClassifierNetwork:
@@ -59,14 +61,14 @@ class HeadToPuckClassifier(Classifier):
         SoccerFeaturesLabels.PLAYER_PUCK_ANGLE
     ]
 
-    def __init__(self, range, **kwargs):
+    def __init__(self, id, range, **kwargs):
         # inputs: 
         #   player-puck distance
         #   player-puck- angle
         #  
         # outputs:
         #   confidence score (0-1)
-        super().__init__(self.FEATURES, range, n_hidden=5, bias=True, **kwargs)
+        super().__init__(id, self.FEATURES, range, n_hidden=5, bias=True, **kwargs)
              
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
 
@@ -74,20 +76,20 @@ class HeadToPuckClassifier(Classifier):
 
         (c_pp_dist, c_pp_angle) = selected_features_curr
         # return the boolean value as the 'label' for classification
-        return c_pp_dist >= 0 and np.abs(c_pp_angle) < 0.25
+        return c_pp_dist >= 0 and np.abs(c_pp_angle) < 0.5
 
         
 class PuckToGoalClassifier(Classifier):
 
     FEATURES = [SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE]
 
-    def __init__(self, range, **kwargs):
+    def __init__(self, id, range, **kwargs):
         # inputs: 
         #   player-puck distance
         #  
         # outputs:
         #   confidence score (0-1) 
-        super().__init__(self.FEATURES, range, n_hidden=1, bias=False, **kwargs)
+        super().__init__(id, self.FEATURES, range, n_hidden=1, bias=False, **kwargs)
             
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
 
@@ -103,26 +105,29 @@ class RecoverTowardsPuck(Classifier):
 
     FEATURES = [        
         SoccerFeaturesLabels.SPEED,
-        SoccerFeaturesLabels.PREVIOUS_SPEED,
+        SoccerFeaturesLabels.DELTA_SPEED,
+        SoccerFeaturesLabels.PREVIOUS_ACCEL,
+        SoccerFeaturesLabels.PLANNER_CHOICE,
         SoccerFeaturesLabels.PLAYER_PUCK_ANGLE
     ]
 
-    def __init__(self, range, action_net=None, train=None, **kwargs):
+    def __init__(self, id, range, action_net=None, train=None, **kwargs):
         # inputs: 
         #   player-puck distance
         #  
         # outputs:
-        #   confidence score (0-1) 
-        super().__init__(self.FEATURES, range, n_hidden=5, bias=True, **kwargs)
+        #   confidence score (0-1)
+        super().__init__(id, self.FEATURES, range, n_hidden=5, bias=False, **kwargs)
             
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
 
         selected_features_curr, selected_features_next = self.get_selected_features(selected_features_curr, selected_features_next)
 
-        (c_speed, c_prev_speed, c_pp_angle) = selected_features_curr
+        (c_speed, c_prev_speed, c_prev_accel, c_last_choice, c_pp_angle) = selected_features_curr
 
         # are we likely stuck next to a wall?
-        puck_stuck = c_speed < MIN_WALL_SPEED and c_prev_speed < MIN_WALL_SPEED and np.abs(c_pp_angle) > 0.35
+        puck_stuck = (c_last_choice != self.id and c_prev_accel > 0.5 and np.abs(c_speed - c_prev_speed) < 0.01 and np.abs(c_pp_angle) > 0.4) or \
+                     (c_last_choice == self.id and c_prev_speed > -5.0)
 
         # return the boolean value as the 'label' for classification
         return puck_stuck
@@ -130,29 +135,39 @@ class RecoverTowardsPuck(Classifier):
 class TurnAroundTowardsPuck(Classifier):
 
     FEATURES = [
+        SoccerFeaturesLabels.PREVIOUS_ACCEL,
+        SoccerFeaturesLabels.SPEED,
+        SoccerFeaturesLabels.PREVIOUS_SPEED,
+        SoccerFeaturesLabels.LAST_PLANNER_CHOICE,
         SoccerFeaturesLabels.PLAYER_PUCK_DISTANCE,
-        SoccerFeaturesLabels.PLAYER_PUCK_ANGLE
+        SoccerFeaturesLabels.PLAYER_PUCK_ANGLE,
+        SoccerFeaturesLabels.PLAYER_CENTER_ORIENTATION
     ]
 
-    def __init__(self, range, action_net=None, train=None, **kwargs):
+    def __init__(self, id, range, action_net=None, train=None, **kwargs):
         # inputs:
         #   player-puck distance
         #
         # outputs:
         #   confidence score (0-1)
-        super().__init__(self.FEATURES, range, n_hidden=5, bias=True, **kwargs)
+        super().__init__(id, self.FEATURES, range, n_hidden=5, bias=True, **kwargs)
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
 
         selected_features_curr, selected_features_next = self.get_selected_features(selected_features_curr, selected_features_next)
 
-        (c_pp_dist, c_pp_angle) = selected_features_curr
+        (c_prev_accel, c_speed, c_prev_speed, c_choice, c_pp_dist, c_pp_angle, c_orient) = selected_features_curr
 
         # puck is behind!
-        puck_stuck = (np.abs(c_pp_angle) >= 0.25 and c_pp_dist >= 10.0)
+        puck_behind = c_choice != self.id and np.abs(c_pp_angle) >= 0.5 and np.abs(c_pp_dist) <= 10.0
+        puck_recovered = c_choice == self.id and (np.abs(c_pp_angle) <= 0.2 or np.abs(c_pp_dist) > 10.0)
+
+        player_stuck = (c_choice != self.id and c_prev_accel > 0.5 and np.abs(c_speed - c_prev_speed) < 0.01 and np.abs(c_orient) < 0.05) or \
+                       (c_choice == self.id and c_prev_speed > -5.0)
+
 
         # return the boolean value as the 'label' for classification
-        return puck_stuck
+        return (puck_behind or player_stuck) and not puck_recovered
 
 class PlayerPuckGoalPlannerActorNetwork(BaseActorNetwork):
 
@@ -183,9 +198,11 @@ class PlayerPuckGoalPlannerActorNetwork(BaseActorNetwork):
             extractor.TARGET_SPEED
         ], outputs)
 
+        classifierNetwork: ClassifierNetwork = self.classifiers[self.selection_action_net.last_choice[None]]
+
         extractor.set_features([
             extractor.PLANNER_CHOICE,
-        ], self.selection_action_net.last_choice[None])
+        ], classifierNetwork.id)
 
     def call(self, action: Action, f: torch.Tensor, bias: torch.Tensor):
         # run the classifiers to generate a set of scores as an index tensor
@@ -235,6 +252,11 @@ class PlayerPuckGoalPlannerActorNetwork(BaseActorNetwork):
             delta_negative_speed[None], # negative delta, ie reverse as fast as possible
             negative_speed[None], # negative target speed, ie reverse
 
+            # drive backwards
+            #reverse_steer_angle[None], # steer in direction opposite of puck direction
+            #delta_negative_speed[None], # negative delta, ie reverse as fast as possible
+            #negative_speed[None], # negative target speed, ie reverse
+
         ])
 
         selected_features: List[torch.Tensor] = []
@@ -257,8 +279,8 @@ class PlayerPuckGoalPlannerActor(BaseActor):
 
     CLASSIFIER_HEAD_TO_PUCK = 0
     CLASSIFIER_PUCK_TO_GOAL = 1
-    CLASSIFIER_STUCK_AGAINST_WALL = 2
-    CLASSIFIER_TURN_AROUND_TO_PUCK = 3
+    CLASSIFIER_TURN_AROUND_TO_PUCK = 2
+    CLASSIFIER_STUCK_AGAINST_WALL = 3
 
     OUT_FEATURE_DELTA_ANGLE = 0,
     OUT_FEATURE_DELTA_SPEED = 1,
@@ -269,7 +291,15 @@ class PlayerPuckGoalPlannerActor(BaseActor):
         classifiers = [
             HeadToPuckClassifier,
             PuckToGoalClassifier,
+            #RecoverTowardsPuck,
             TurnAroundTowardsPuck
+        ]
+
+        classifier_ids = [
+            self.CLASSIFIER_HEAD_TO_PUCK,
+            self.CLASSIFIER_PUCK_TO_GOAL,
+            #self.CLASSIFIER_STUCK_AGAINST_WALL,
+            self.CLASSIFIER_TURN_AROUND_TO_PUCK,
         ]
 
         self.ranges = ranges = []
@@ -279,7 +309,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             index += len(c.FEATURES)
         
         classifiers = [
-               c(ranges[idx], classifier_net=actor_net.classifiers[idx] if actor_net else None) for idx, c in enumerate(classifiers)
+               c(classifier_ids[idx], ranges[idx], classifier_net=actor_net.classifiers[idx] if actor_net else None) for idx, c in enumerate(classifiers)
         ]
 
         if actor_net is None:
@@ -316,7 +346,7 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             train = self.train
 
         if train:
-            call_output = torch.Tensor([c.sample(call_output[idx]) for idx, c in enumerate(self.classifiers)])
+            call_output = self.sample(call_output)
             # get labels
             y = self.this_actor_net.get_labels(f)
 
@@ -327,6 +357,9 @@ class PlayerPuckGoalPlannerActor(BaseActor):
             self.this_actor_net.set_outgoing_features(outputs, extractor)
 
         return call_output
+
+    def sample(self, input):
+        return torch.Tensor([c.sample(input[idx]) for idx, c in enumerate(self.classifiers)])
 
     def reward(self, action, greedy_action, selected_features_curr, selected_features_next, time):
 
@@ -383,7 +416,9 @@ class PlayerPuckGoalFineTunedPlannerActorNetwork(BaseActorNetwork):
             SoccerFeaturesLabels.PUCK_GOAL_DISTANCE,
             SoccerFeaturesLabels.PUCK_GOAL_ANGLE,
             SoccerFeaturesLabels.PLAYER_PUCK_COUNTER_STEER_ANGLE,
-            SoccerFeaturesLabels.PLANNER_CHOICE
+            SoccerFeaturesLabels.PLANNER_CHOICE,
+            SoccerFeaturesLabels.PLAYER_CENTER_ORIENTATION,
+            SoccerFeaturesLabels.PLAYER_GOAL_DISTANCE,
         ]
 
         self.OUTPUT_STEERING_OFFSET = 0
@@ -408,7 +443,10 @@ class PlayerPuckGoalFineTunedPlannerActorNetwork(BaseActorNetwork):
 
     def forward(self, action: Action, f: torch.Tensor, extractor: SoccerFeatures):
         outputs = self.call(action, f)
-        return self.set_output_features(outputs, extractor)
+        if not self.action_net.training:
+            return self.set_output_features(outputs, extractor)
+        else:
+            return outputs
 
     def call(self, action: Action, f: torch.Tensor):
         return self.action_net(f)
@@ -530,42 +568,38 @@ class PlayerPuckGoalFineTunedPlannerActor(BaseActor):
         #print("choice", choice)
 
         # reward the outcomes that minimizes the puck's distance to the goal
-        if c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_PUCK_TO_GOAL or \
-           c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_HEAD_TO_PUCK:
+        if c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_HEAD_TO_PUCK:
 
+            reward_dist = continuous_causal_reward_ext(c_pp_dist, n_pp_dist, 0.1, 0.0, MAX_DISTANCE) / MAX_DISTANCE
+            reward = reward_dist * (time if reward_dist < 0 else 1/time)
+
+        elif c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_PUCK_TO_GOAL:
 
             # reward the outcomes that minimizes both the player/puck to goal angle and distance to the puck
-            reward_goal = continuous_causal_reward_ext(c_goal_dist, n_goal_dist, 0.1, 0.5, MAX_DISTANCE) / MAX_DISTANCE
-            reward_dist = continuous_causal_reward_ext(c_pp_dist, n_pp_dist, 0.1, 0.5, MAX_DISTANCE) / MAX_DISTANCE
+            reward_goal = continuous_causal_reward_ext(c_goal_dist, n_goal_dist, 0.1, 0.0, MAX_DISTANCE) / MAX_DISTANCE
+            reward_angle = continuous_causal_reward_ext(np.abs(c_pg_angle - c_counter), np.abs(n_pg_angle - n_counter), 0.01, 0.0, MAX_STEERING_ANGLE_REWARD) / MAX_STEERING_ANGLE_REWARD
 
             # scale reward by time, asymmetrically (negative rewards get worse with more time, positive rewards get better with less time)
 
             reward_goal = reward_goal * (time if reward_goal < 0 else 1/time)
-            reward_dist = reward_dist * (time if reward_dist < 0 else 1/time)
+            reward_angle = reward_angle * (time if reward_angle < 0 else 1/time)
 
-            # magnify mistakes that move the puck away from the goal
-            #if reward_goal < 0:
-            #    reward_goal = - np.power(reward_goal, 2)
-            #if reward_dist < 0:
-            #    reward_dist = - np.power(reward_dist, 2)
-
-            reward = 0
-            reward += (reward_goal + reward_dist) / 2
+            reward = (reward_goal + reward_angle) / 2
 
             # if your speed becomes zero because you got stuck... negative
             if c_speed < 0.5 and n_speed < 0.5:
                 reward -= time
-            elif c_speed < 0.5 and np.abs(n_speed) > 1.0:
-                reward += time
+            #elif c_speed < 0.5 and np.abs(n_speed) > 1.0:
+            #    reward += time
 
             # reward stablization of the puck steering near the goal
-            reward_angle = continuous_causal_reward_ext(np.abs(c_pg_angle - c_counter), np.abs(n_pg_angle - n_counter), 0.01, 0.0, MAX_STEERING_ANGLE_REWARD) / MAX_STEERING_ANGLE_REWARD
+            #reward += reward_angle * (MAX_DISTANCE - c_pp_dist) * (time if reward_angle < 0 else 1/time)
 
-            reward += reward_angle * (MAX_DISTANCE - c_pp_dist) * (time if reward_angle < 0 else 1/time)
-
-        if c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_STUCK_AGAINST_WALL:
-            # maximize the approach towards the target speed
-            reward = continuous_causal_reward_ext(c_speed - c_target_speed, n_speed - n_target_speed, 0.1, 0.0, MAX_SPEED) / MAX_SPEED
+        elif c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_STUCK_AGAINST_WALL or \
+             c_choice == PlayerPuckGoalPlannerActor.CLASSIFIER_TURN_AROUND_TO_PUCK:
+            # maximize the approach towards the puck
+            reward_angle = continuous_causal_reward_ext(np.abs(c_pp_angle), np.abs(n_pp_angle), 0.01, 0.0, MAX_STEERING_ANGLE_REWARD) / MAX_STEERING_ANGLE_REWARD
+            reward = reward_angle * (time if reward_angle < 0 else 1/time)
 
         return [reward] * PlayerPuckGoalFineTunedPlannerActorNetwork.OUTPUTS
     

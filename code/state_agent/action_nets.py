@@ -75,10 +75,13 @@ class LinearNetwork(torch.nn.Module):
     def forward(self, x):
         return self.base.forward(x) * self.scale
 
+    def get_range(self):
+        return self.base.range
+
 class LinearWithSigmoid(LinearNetwork):
 
-    def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, hard=False, **kwargs) -> None:
-        super().__init__(torch.nn.Sigmoid if not hard else torch.nn.Hardsigmoid, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, bias=bias, **kwargs)
+    def __init__(self, n_inputs, n_outputs, n_hidden, bias, scale, range, hard=False, **kwargs) -> None:
+        super().__init__(torch.nn.Sigmoid if not hard else torch.nn.Hardsigmoid, n_inputs=n_inputs, n_outputs=n_outputs, n_hidden=n_hidden, scale=scale, range=range, bias=bias, **kwargs)
 
 class LinearWithTanh(torch.nn.Module):
 
@@ -102,7 +105,6 @@ class LinearWithTanh(torch.nn.Module):
 
     def get_range(self):
         return self.linear.base.range
-
 class LinearWithSoftmax(LinearNetwork):
 
     def __init__(self, n_inputs=1, n_outputs=1, n_hidden=20, bias=False, **kwargs) -> None:

@@ -44,18 +44,31 @@ class BaseAgent:
         )
 
     def reset(self):
+        self.last_score = None
         self.last_output = None
+        self.last_feature = None
         self.last_state = []
 
     def __call__(self, kart_info, soccer_state, team_num, **kwargs):
         action = Action()
 
-        f = self.get_feature_vector(kart_info, soccer_state, team_num, last_state=self.last_state, last_action=self.last_output)
+        # reset agent state on goal score
+        if soccer_state.score != self.last_score:
+            self.reset()
+            self.last_score = soccer_state.score
+
+        # calculate the main feature structure here, the actors will select features from this structure
+        f = self.get_feature_vector(kart_info, soccer_state, team_num,
+            last_state=self.last_state, last_action=self.last_output, last_feature=self.last_feature
+        )
 
         # save previous kart state
         self.last_state.append(copy.deepcopy(kart_info))
         if len(self.last_state) > self.MAX_STATE:
             self.last_state.pop(0)
+
+        # save previous features
+        self.last_feature = f
 
         action = self.invoke_actors(action, f)
 
